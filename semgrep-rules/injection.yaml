@@ -1,0 +1,38 @@
+# Custom Veilguard Semgrep rules. These are used ONLY when semgrep is installed;
+# the native rules in src/rules/injection/ cover the same patterns without it.
+rules:
+  - id: veilguard-sql-injection-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL query built by string concatenation — use parameterized queries.
+    metadata:
+      category: injection
+      cwe: CWE-89
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query("..." + $X)
+          - pattern: $DB.query(`...${$X}...`)
+          - pattern: $P.$queryRawUnsafe(...)
+          - pattern: $P.$executeRawUnsafe(...)
+
+  - id: veilguard-command-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: OS command built from untrusted input — use execFile/spawn with an argument array.
+    metadata:
+      category: injection
+      cwe: CWE-78
+    patterns:
+      - pattern-either:
+          - pattern: exec(`...${$X}...`)
+          - pattern: execSync(`...${$X}...`)
+          - pattern: exec("..." + $X)
+
+  - id: veilguard-xss-dangerously-set-inner-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: dangerouslySetInnerHTML with dynamic content — sanitize with DOMPurify.
+    metadata:
+      category: injection
+      cwe: CWE-79
+    pattern: dangerouslySetInnerHTML={{ __html: $X }}

@@ -1,0 +1,3 @@
+node_modules/
+.next/
+# NOTE: .env is intentionally NOT ignored here (a common mistake).
