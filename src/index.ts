@@ -1,7 +1,7 @@
 /** Public library surface for veilguard-scanner (used by the CLI and later slices). */
 export * from './types.js';
 export { detectTargetType, buildContext } from './engine/recon.js';
-export { runScan, type RunOptions } from './engine/runner.js';
+export { runScan, findingId, type RunOptions, type ScanProgress } from './engine/runner.js';
 export { grade } from './engine/grade.js';
 export { suppress } from './engine/suppress.js';
 export { classifySecret } from './engine/secret-matrix.js';
