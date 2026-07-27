@@ -157,7 +157,9 @@ export interface BabelFile {
 export interface Helpers {
   httpGet: (
     url: string,
-    opts?: { headers?: Record<string, string> },
+    // Read-only by design: rules can set headers and a short timeout, but not
+    // the method or a body — so a rule physically cannot issue a write.
+    opts?: { headers?: Record<string, string>; timeoutMs?: number },
   ) => Promise<{ status: number; headers: Record<string, string>; body: string } | null>;
   /** Scan text for a regex, returning matches with 1-based line numbers. */
   safeRegexScan: (

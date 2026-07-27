@@ -56,6 +56,38 @@ export const nextConfig: Rule = {
       }
     }
 
+    // Wildcard image host — no CVE needed. A wildcard hostname in
+    // images.remotePatterns (or `domains: ['*']`) lets the Next.js image
+    // optimizer be pointed at ANY host, which is both an SSRF vector and a
+    // resource-exhaustion amplifier (attacker-chosen large images proxied
+    // through your optimizer).
+    if (configPath) {
+      const content = repo.readFile(configPath) ?? '';
+      const wildcardRemotePattern =
+        /remotePatterns[\s\S]{0,400}?hostname\s*:\s*['"`]\*\*?['"`]/i.test(content) ||
+        /images[\s\S]{0,300}?domains\s*:\s*\[[^\]]{0,160}?['"`]\*['"`]/i.test(content);
+      if (wildcardRemotePattern) {
+        out.push({
+          ruleId: 'WEB_CONFIG_NEXT_IMAGE_WILDCARD',
+          category: 'web_config',
+          severity: 'medium',
+          cwe: 'CWE-918',
+          owasp: 'A10:2021',
+          title: 'Your Next.js image optimizer accepts images from any host',
+          whyItMatters:
+            'A wildcard hostname in images.remotePatterns lets anyone make your server fetch and optimize images from arbitrary URLs — an SSRF path to internal services and a way to exhaust your CPU/memory with huge images.',
+          evidence: 'images.remotePatterns hostname "**" (or domains: ["*"])',
+          location: { file: configPath },
+          fix: 'Replace the wildcard with an explicit allowlist of the exact hostnames you serve images from.',
+          fixPrompt:
+            'In next.config, change images.remotePatterns (or images.domains) from a wildcard host ("**"/"*") to an explicit allowlist of the specific hostnames your app loads images from.',
+          confidence: 'high',
+          mode: 'whitebox',
+          source: 'native',
+        });
+      }
+    }
+
     // Missing security headers in next.config.
     if (configPath) {
       const content = repo.readFile(configPath) ?? '';

@@ -1,11 +1,17 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { isSourceFile } from '../_shared.js';
+import { isHandler, isServerRoute } from './_webhook.js';
 
 /**
  * White-box: a webhook handler that reads the request body but never verifies
  * the signature. Heuristic — a file that looks like a webhook route (path or
  * content mentions webhook + a provider) and does NOT call the provider's
  * signature-verification API.
+ *
+ * Gated on the file being an actual server route handler. React pages and docs
+ * that merely *mention* "stripe webhook" / "req.body" in rendered marketing or
+ * documentation text (e.g. `<p>unsanitized req.body ...</p>`) are not handlers
+ * and previously produced false-positive criticals.
  */
 export const webhookVerification: Rule = {
   id: 'API_WEBHOOK_UNVERIFIED',
@@ -21,6 +27,9 @@ export const webhookVerification: Rule = {
       const looksLikeWebhookPath = /webhook|hooks?\//i.test(path);
       const content = repo.readFile(path);
       if (!content) continue;
+
+      // Only real server route handlers can be vulnerable — not UI components.
+      if (!isServerRoute(path, content)) continue;
 
       const mentionsWebhook = looksLikeWebhookPath || /webhook/i.test(content);
       if (!mentionsWebhook) continue;
@@ -43,10 +52,6 @@ export const webhookVerification: Rule = {
     return out;
   },
 };
-
-function isHandler(content: string): boolean {
-  return /req\.body|request\.body|await\s+req\.(text|json)\(\)|export\s+(async\s+)?function\s+POST|export\s+const\s+POST/.test(content);
-}
 
 function finding(file: string, provider: 'stripe' | 'github'): Finding {
   const p = provider === 'stripe' ? 'Stripe' : 'GitHub';

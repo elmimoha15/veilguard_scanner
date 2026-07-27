@@ -21,6 +21,19 @@ describe('SECRETS_HARDCODED', () => {
     expect(safe.length).toBe(0);
   });
 
+  it('does NOT fire on truncated / masked demo keys (landing-page mockups)', async () => {
+    const ctx = makeRepoContext({
+      // Truncated below a real key's length — the exact TerminalMockup case.
+      'ui/TerminalMockup.tsx': `export const demo = 'sk_live_51Mrt8K2eZvKYmT...Xk9';`,
+      // Long enough to match the pattern, but redacted with a trailing ellipsis.
+      'ui/hero.tsx': `const shown = 'sk_live_51QabcdEFGH1234567890abcd...more';`,
+      // Masked body (repeated char run).
+      'ui/masked.tsx': `const m = 'sk_live_xxxxxxxxxxxxxxxxxxxxxxxx';`,
+    });
+    const findings = await hardcodedSecrets.run(ctx);
+    expect(findings.length).toBe(0);
+  });
+
   it('does NOT fire on public-by-design values', async () => {
     const ctx = makeRepoContext({
       'config.ts': `

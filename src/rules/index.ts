@@ -10,11 +10,14 @@ import { missingAuth } from './auth/missing-auth.js';
 import { sqlInjection } from './injection/sql-injection.js';
 import { commandInjection } from './injection/command-injection.js';
 import { xss } from './injection/xss.js';
+import { ssrf } from './injection/ssrf.js';
 import { webhookVerification } from './api-webhooks/webhook-verification.js';
+import { webhookIdempotency } from './api-webhooks/webhook-idempotency.js';
 import { massAssignment } from './api-webhooks/mass-assignment.js';
 import { nextConfig } from './web-config/nextconfig.js';
 import { httpHeaders } from './web-config/http-headers.js';
 import { exposedFiles } from './web-config/exposed-files.js';
+import { sourceMaps } from './web-config/source-maps.js';
 import { knownCve } from './dependencies/known-cve.js';
 import { rulesFile } from './ai-specific/rules-file.js';
 import { insecureDefaults } from './ai-specific/insecure-defaults.js';
@@ -40,13 +43,16 @@ export const rules: Rule[] = [
   sqlInjection,
   commandInjection,
   xss,
+  ssrf,
   // api & webhooks
   webhookVerification,
+  webhookIdempotency,
   massAssignment,
   // web / transport / config
   nextConfig,
   httpHeaders,
   exposedFiles,
+  sourceMaps,
   // dependencies
   knownCve,
   // ai-specific

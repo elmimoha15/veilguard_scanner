@@ -22,7 +22,7 @@ export interface SecretContext {
 
 /** Patterns that are ALWAYS dangerous — never suppressed. */
 const DANGEROUS: { provider: string; re: RegExp; reason: string }[] = [
-  { provider: 'stripe', re: /\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}/, reason: 'Stripe secret/restricted key' },
+  { provider: 'stripe', re: /\b(sk|rk)_(live|test)_[A-Za-z0-9]{24,}/, reason: 'Stripe secret/restricted key' },
   { provider: 'stripe', re: /\bwhsec_[A-Za-z0-9]{10,}/, reason: 'Stripe webhook signing secret' },
   { provider: 'supabase', re: /\bsb_secret_[A-Za-z0-9]{10,}/, reason: 'Supabase secret key' },
   { provider: 'aws', re: /\bAKIA[0-9A-Z]{16}\b/, reason: 'AWS access key id' },

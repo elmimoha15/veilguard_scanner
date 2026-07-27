@@ -13,4 +13,13 @@ describe('DEPENDENCIES_KNOWN_CVE', () => {
     const ctx = makeRepoContext({ 'package.json': JSON.stringify({ dependencies: { next: '15.3.0' } }) });
     expect((await knownCve.run(ctx)).length).toBe(0);
   });
+
+  it('provisional TODO advisories fire against their sentinel range (999.x)', async () => {
+    // The sentinel range proves the version-check MECHANISM works today; the
+    // real ranges are TODO constants to be plugged in once confirmed.
+    const ctx = makeRepoContext({ 'package.json': JSON.stringify({ dependencies: { next: '999.0.0' } }) });
+    const ids = (await knownCve.run(ctx)).map((f) => f.ruleId);
+    expect(ids).toContain('DEPENDENCIES_NEXTJS_IMAGE_RESOURCE_EXHAUSTION_TODO');
+    expect(ids).toContain('DEPENDENCIES_NEXTJS_SERVER_ACTIONS_SSRF_TODO');
+  });
 });

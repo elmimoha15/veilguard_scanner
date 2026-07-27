@@ -8,7 +8,10 @@ import { CODE_AND_CONFIG_EXT } from '../_shared.js';
 const DANGEROUS_TOKENS: { id: string; re: RegExp; title: string; why: string; cwe: string }[] = [
   {
     id: 'SECRETS_STRIPE_SECRET_KEY',
-    re: /\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}/g,
+    // Real Stripe secret/restricted keys have a random body of ~24+ chars. A
+    // shorter match (e.g. the `sk_live_51Mrt8K2eZvKYmT` prefix of a truncated
+    // demo string) is almost always redacted marketing/docs content, not a leak.
+    re: /\b(sk|rk)_(live|test)_[A-Za-z0-9]{24,}/g,
     title: 'Your Stripe secret key is exposed',
     why: 'Anyone with this key can create charges, issue refunds, and read customer data as you.',
     cwe: 'CWE-798',
@@ -53,6 +56,24 @@ const DANGEROUS_TOKENS: { id: string; re: RegExp; title: string; why: string; cw
 const FIX_PROMPT =
   'Move this secret out of the codebase into an environment variable that is NEVER prefixed with NEXT_PUBLIC_/VITE_. Rotate the leaked key in the provider dashboard immediately, and load it server-side only.';
 
+/**
+ * A raw-token regex stops at the first non-[A-Za-z0-9] char, so a redacted demo
+ * value like `sk_live_51Mrt8K2eZvKYmT...Xk9` matches only its own *prefix* — the
+ * "…"/"..."/"***" that proves it's fake is stripped before classification. We
+ * recover that signal by looking at the source immediately after the match, plus
+ * any long single-char mask run inside the token itself (e.g. `sk_live_xxxx…`).
+ * Landing pages and docs are full of exactly this; real credentials are not.
+ */
+const TRUNCATION_AFTER = /^\s*(\.{2,}|…|\*|·{3,}|X{4,}|x{4,})/;
+
+function looksRedacted(text: string, hit: { match: string; index: number }): boolean {
+  const after = text.slice(hit.index + hit.match.length, hit.index + hit.match.length + 4);
+  if (TRUNCATION_AFTER.test(after)) return true;
+  // A run of 10+ identical chars is a mask/placeholder, never a real key body.
+  if (/(.)\1{9,}/.test(hit.match)) return true;
+  return false;
+}
+
 function mk(id: string, opts: { title: string; why: string; cwe: string; file?: string; line?: number; url?: string; raw: string; source: 'blackbox' | 'whitebox' }): SuppressibleFinding {
   return {
     ruleId: id,
@@ -83,6 +104,7 @@ function scanText(
   // 1. Known-dangerous raw tokens.
   for (const t of DANGEROUS_TOKENS) {
     for (const hit of safeRegexScan(text, t.re)) {
+      if (looksRedacted(text, hit)) continue;
       out.push(mk(t.id, { title: t.title, why: t.why, cwe: t.cwe, file: loc.file, url: loc.url, line: hit.line, raw: hit.match, source: mode }));
     }
   }

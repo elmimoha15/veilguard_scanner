@@ -27,9 +27,59 @@ export function detectTargetType(value: string): Target {
 
 const CONFIG_PATTERNS = {
   supabaseUrl: /https:\/\/([a-z0-9]{20})\.supabase\.co/i,
-  supabaseAnonKey: /(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})/,
+  // Legacy Supabase public key: an anon JWT (role "anon").
+  supabaseAnonJwt: /(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})/,
+  // Newer Supabase public key format (managed backends: Bolt/Lovable/v0 ship these).
+  supabasePublishableKey: /(sb_publishable_[A-Za-z0-9_-]{10,})/,
   firebaseApiKey: /["']?apiKey["']?\s*[:=]\s*["'](AIza[0-9A-Za-z_-]{35})["']/,
 };
+
+/**
+ * Pull the Supabase/Firebase public config out of a set of text blobs (the
+ * homepage HTML + JS bundles). Pure + deterministic so the black-box probe's
+ * detection step can be unit-tested without hitting the network.
+ *
+ * `supabaseAnonKey` holds whichever PUBLIC key the app ships to every visitor —
+ * the newer `sb_publishable_…` key is preferred, falling back to a legacy anon
+ * JWT. Both are valid `apikey` values for the PostgREST endpoint. We only look
+ * for a key once a Supabase project URL is present (a bare JWT elsewhere is not
+ * ours to probe with).
+ */
+export function extractDiscovered(haystacks: string[]): DiscoveredConfig {
+  const discovered: DiscoveredConfig = {};
+
+  for (const hay of haystacks) {
+    if (!discovered.supabaseUrl) {
+      const m = hay.match(CONFIG_PATTERNS.supabaseUrl);
+      if (m) discovered.supabaseUrl = m[0];
+    }
+    if (!discovered.firebaseConfig) {
+      const m = hay.match(CONFIG_PATTERNS.firebaseApiKey);
+      if (m) discovered.firebaseConfig = { apiKey: m[1]! };
+    }
+  }
+
+  if (discovered.supabaseUrl) {
+    for (const hay of haystacks) {
+      const pub = hay.match(CONFIG_PATTERNS.supabasePublishableKey);
+      if (pub) {
+        discovered.supabaseAnonKey = pub[1];
+        break;
+      }
+    }
+    if (!discovered.supabaseAnonKey) {
+      for (const hay of haystacks) {
+        const jwt = hay.match(CONFIG_PATTERNS.supabaseAnonJwt);
+        if (jwt) {
+          discovered.supabaseAnonKey = jwt[1];
+          break;
+        }
+      }
+    }
+  }
+
+  return discovered;
+}
 
 async function reconUrl(baseUrl: string): Promise<{ http: HttpArtifacts; discovered: DiscoveredConfig }> {
   const home = await httpGet(baseUrl);
@@ -43,7 +93,7 @@ async function reconUrl(baseUrl: string): Promise<{ http: HttpArtifacts; discove
     cookies: home?.headers['set-cookie'] ? home.headers['set-cookie'].split('\n') : [],
   };
 
-  const discovered: DiscoveredConfig = {};
+  let discovered: DiscoveredConfig = {};
 
   if (home) {
     // Collect script srcs from the homepage HTML, fetch a bounded number.
@@ -69,19 +119,8 @@ async function reconUrl(baseUrl: string): Promise<{ http: HttpArtifacts; discove
     );
     http.jsBundles = bundles;
 
-    // Parse Supabase/Firebase config out of the HTML + bundles.
-    const haystacks = [home.body, ...bundles.map((b) => b.content)];
-    for (const hay of haystacks) {
-      const sUrl = hay.match(CONFIG_PATTERNS.supabaseUrl);
-      if (sUrl && !discovered.supabaseUrl) discovered.supabaseUrl = sUrl[0];
-      const fKey = hay.match(CONFIG_PATTERNS.firebaseApiKey);
-      if (fKey && !discovered.firebaseConfig) discovered.firebaseConfig = { apiKey: fKey[1]! };
-      // Grab an anon-looking JWT only when a supabase url is nearby.
-      if (discovered.supabaseUrl && !discovered.supabaseAnonKey) {
-        const jwt = hay.match(CONFIG_PATTERNS.supabaseAnonKey);
-        if (jwt) discovered.supabaseAnonKey = jwt[1];
-      }
-    }
+    // Parse Supabase/Firebase public config out of the HTML + bundles.
+    discovered = extractDiscovered([home.body, ...bundles.map((b) => b.content)]);
   }
 
   return { http, discovered };
@@ -91,7 +130,12 @@ async function reconUrl(baseUrl: string): Promise<{ http: HttpArtifacts; discove
 /* White-box recon (repo targets)                                              */
 /* -------------------------------------------------------------------------- */
 
-const IGNORE = ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**'];
+const IGNORE = [
+  '**/node_modules/**', '**/.next/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**',
+  // Third-party / generated dependency trees — scanning these yields false
+  // positives from other people's code and bloats the workspace.
+  '**/venv/**', '**/.venv/**', '**/__pycache__/**', '**/vendor/**', '**/.tox/**', '**/.mypy_cache/**', '**/.pytest_cache/**', '**/.gradle/**',
+];
 
 function buildRepo(root: string): RepoArtifacts {
   const files = fg.sync(['**/*'], {
