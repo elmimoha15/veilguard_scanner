@@ -22,6 +22,27 @@ export const webhookVerification: Rule = {
     if (!repo) return [];
     const out: Finding[] = [];
 
+    // Verification is often split across files: the route is wired in one file
+    // (e.g. index.ts reads the x-hub-signature header) while the HMAC check lives
+    // in a handler module it delegates to (e.g. githubWebhook.ts). A per-file
+    // check false-flags the wiring file. So first decide, at the REPO level,
+    // whether each provider's webhook is verified ANYWHERE — the correct model
+    // for the common single-webhook app. (Trade-off: a repo with one verified and
+    // one unverified webhook of the same provider could be under-reported; rare,
+    // and far better than crying wolf on correctly-secured code.)
+    let stripeVerifiedRepo = false;
+    let githubVerifiedRepo = false;
+    for (const path of repo.files) {
+      if (!isSourceFile(path)) continue;
+      const c = repo.readFile(path);
+      if (!c) continue;
+      if (/stripe\.webhooks\.constructEvent\s*\(/.test(c)) stripeVerifiedRepo = true;
+      // HMAC verification tied to webhook context (avoid matching password hashing etc.).
+      if (/createHmac\s*\(/.test(c) && /timingSafeEqual\s*\(/.test(c) && /(webhook|x-hub-signature)/i.test(c)) {
+        githubVerifiedRepo = true;
+      }
+    }
+
     for (const path of repo.files) {
       if (!isSourceFile(path)) continue;
       const looksLikeWebhookPath = /webhook|hooks?\//i.test(path);
@@ -34,18 +55,16 @@ export const webhookVerification: Rule = {
       const mentionsWebhook = looksLikeWebhookPath || /webhook/i.test(content);
       if (!mentionsWebhook) continue;
 
-      // Stripe
+      // Stripe — verified inline here OR anywhere in the repo it delegates to.
       const isStripe = /stripe/i.test(content);
-      const stripeVerified = /stripe\.webhooks\.constructEvent\s*\(/.test(content);
-      if (isStripe && !stripeVerified && isHandler(content)) {
+      if (isStripe && !stripeVerifiedRepo && isHandler(content)) {
         out.push(finding(path, 'stripe'));
         continue;
       }
 
-      // GitHub / generic HMAC
+      // GitHub / generic HMAC — same repo-level treatment.
       const isGithub = /x-hub-signature|github/i.test(content) && /webhook/i.test(content);
-      const hmacVerified = /createHmac\s*\(|timingSafeEqual\s*\(/.test(content);
-      if (isGithub && !hmacVerified && isHandler(content)) {
+      if (isGithub && !githubVerifiedRepo && isHandler(content)) {
         out.push(finding(path, 'github'));
       }
     }

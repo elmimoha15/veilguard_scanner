@@ -135,6 +135,12 @@ const IGNORE = [
   // Third-party / generated dependency trees — scanning these yields false
   // positives from other people's code and bloats the workspace.
   '**/venv/**', '**/.venv/**', '**/__pycache__/**', '**/vendor/**', '**/.tox/**', '**/.mypy_cache/**', '**/.pytest_cache/**', '**/.gradle/**',
+  // Test/fixture/example artifacts — deliberately-vulnerable fixtures and test
+  // files aren't deployed, so flagging them as production risks is a false
+  // positive. (Bare test/ and tests/ are intentionally NOT ignored — they can
+  // hold real code.)
+  '**/test-fixtures/**', '**/fixtures/**', '**/__tests__/**', '**/__mocks__/**',
+  '**/.storybook/**', '**/cypress/**', '**/e2e/**', '**/*.test.*', '**/*.spec.*', '**/*.stories.*',
 ];
 
 function buildRepo(root: string): RepoArtifacts {

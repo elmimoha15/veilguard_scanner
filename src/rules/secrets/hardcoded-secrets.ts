@@ -56,6 +56,20 @@ const DANGEROUS_TOKENS: { id: string; re: RegExp; title: string; why: string; cw
 const FIX_PROMPT =
   'Move this secret out of the codebase into an environment variable that is NEVER prefixed with NEXT_PUBLIC_/VITE_. Rotate the leaked key in the provider dashboard immediately, and load it server-side only.';
 
+/** Files that ARE the credential (vs. code that happens to contain a token). */
+const CREDENTIAL_FILE = /(^|\/)(\.env(\.[^/]+)?|id_rsa|id_ed25519)$|-adminsdk-[^/]*\.json$|service-?account[^/]*\.json$|credentials[^/]*\.json$|\.(pem|key|p12|pfx|keystore|jks)$/i;
+
+function isCredentialFile(path?: string): boolean {
+  return !!path && CREDENTIAL_FILE.test(path) && !/\.env\.(example|sample|template)$/i.test(path);
+}
+
+// For a credential FILE that's present in the repo/upload, the actionable fix is
+// to stop it ever being committed — matches committed-env.ts's advice.
+const CRED_FILE_FIX =
+  'This credential file will be committed and shared with anyone who has the repo. Add it to .gitignore, remove it from tracking with `git rm --cached <file>`, and rotate the credential at the provider — before you deploy.';
+const CRED_FILE_FIX_PROMPT =
+  'Add this file to .gitignore, remove it from git tracking with `git rm --cached <file>`, and rotate the leaked credential at the provider. Never commit credential files.';
+
 /**
  * A raw-token regex stops at the first non-[A-Za-z0-9] char, so a redacted demo
  * value like `sk_live_51Mrt8K2eZvKYmT...Xk9` matches only its own *prefix* — the
@@ -75,6 +89,7 @@ function looksRedacted(text: string, hit: { match: string; index: number }): boo
 }
 
 function mk(id: string, opts: { title: string; why: string; cwe: string; file?: string; line?: number; url?: string; raw: string; source: 'blackbox' | 'whitebox' }): SuppressibleFinding {
+  const credFile = opts.source === 'whitebox' && isCredentialFile(opts.file);
   return {
     ruleId: id,
     category: 'secrets',
@@ -85,8 +100,8 @@ function mk(id: string, opts: { title: string; why: string; cwe: string; file?: 
     whyItMatters: opts.why,
     evidence: redact(opts.raw),
     location: opts.source === 'whitebox' ? { file: opts.file, line: opts.line } : { url: opts.url },
-    fix: 'Remove the secret from source, rotate it at the provider, and load it from a server-only env var.',
-    fixPrompt: FIX_PROMPT,
+    fix: credFile ? CRED_FILE_FIX : 'Remove the secret from source, rotate it at the provider, and load it from a server-only env var.',
+    fixPrompt: credFile ? CRED_FILE_FIX_PROMPT : FIX_PROMPT,
     confidence: 'high',
     mode: opts.source,
     source: 'native',

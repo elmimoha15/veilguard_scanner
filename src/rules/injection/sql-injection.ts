@@ -5,9 +5,12 @@ import { isSourceFile } from '../_shared.js';
 
 const RAW_UNSAFE = /\$(queryRawUnsafe|executeRawUnsafe)$/;
 const QUERY_METHOD = /(^|\.)(query|execute|raw|exec)$/;
-// Text fallback: a SQL string literal concatenated with a variable, e.g.
-//   'SELECT * FROM orders WHERE id = ' + userId
-const SQL_CONCAT = /["'`][^"'`\n]*\b(SELECT|INSERT|UPDATE|DELETE|DROP|WHERE|FROM)\b[^"'`\n]*["'`]\s*\+\s*[A-Za-z_$]/gi;
+// Text fallback: a string literal that BEGINS with a real SQL statement shape
+// and is concatenated with a variable, e.g. 'SELECT * FROM orders WHERE id = ' + userId.
+// Anchoring on the statement shape (SELECT…FROM / INSERT INTO / UPDATE…SET /
+// DELETE FROM / DROP TABLE) avoids matching prose that merely contains a word
+// like "from"/"where"/"update" (e.g. 'with certificates from ' + issuer).
+const SQL_CONCAT = /["'`]\s*(?:SELECT\b[^"'`\n]*?\bFROM\b|INSERT\s+INTO\b|UPDATE\b[^"'`\n]*?\bSET\b|DELETE\s+FROM\b|DROP\s+TABLE\b)[^"'`\n]*["'`]\s*\+\s*[A-Za-z_$.]/gi;
 
 /**
  * White-box SQL-injection detection:
@@ -48,7 +51,9 @@ export const sqlInjection: Rule = {
       });
 
       // Text fallback: catches concatenation assigned to a variable that the
-      // AST pass can't follow into the later query() call.
+      // AST pass can't follow into the later query() call. The SQL_CONCAT pattern
+      // requires a real statement shape (SELECT…FROM etc.), so prose that merely
+      // contains "from"/"where" no longer trips it.
       const content = repo.readFile(path);
       if (content) {
         for (const m of safeRegexScan(content, SQL_CONCAT)) {

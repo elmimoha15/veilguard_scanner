@@ -1,10 +1,31 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { safeRegexScan } from '../../engine/helpers.js';
 
-const CREATE_TABLE = /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?["']?([a-z_][a-z0-9_]*)["']?/gi;
-const ENABLE_RLS = /alter\s+table\s+(?:public\.)?["']?([a-z_][a-z0-9_]*)["']?\s+enable\s+row\s+level\s+security/gi;
+// Match an optionally schema-qualified identifier and capture the TABLE (last)
+// part — handles `tags`, `public.tags`, and the quoted `"public"."tags"` form
+// (pg_dump). The old pattern grabbed the quoted schema ("public") as the name,
+// so every finding read `Table "public"`.
+const QUALIFIED = String.raw`(?:"?[a-z_][a-z0-9_]*"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?`;
+const CREATE_TABLE = new RegExp(String.raw`create\s+table\s+(?:if\s+not\s+exists\s+)?${QUALIFIED}`, 'gi');
+const ENABLE_RLS = new RegExp(String.raw`alter\s+table\s+(?:only\s+)?${QUALIFIED}\s+enable\s+row\s+level\s+security`, 'gi');
 const PERMISSIVE = /using\s*\(\s*(true|1\s*=\s*1|auth\.uid\(\)\s+is\s+not\s+null)\s*\)/gi;
-const SECURITY_DEFINER_VIEW = /create\s+(?:or\s+replace\s+)?view\s+(?:public\.)?["']?([a-z_][a-z0-9_]*)/gi;
+const SECURITY_DEFINER_VIEW = new RegExp(String.raw`create\s+(?:or\s+replace\s+)?view\s+${QUALIFIED}`, 'gi');
+
+/**
+ * The "no RLS → exposed over the anon REST API" risk is Supabase/PostgREST-
+ * specific: plain Postgres tables reached only through a backend connection are
+ * NOT auto-exposed, so flagging every table as critical there is a false
+ * positive. Only claim REST exposure when the repo actually looks like Supabase.
+ */
+function looksLikeSupabase(repo: NonNullable<ScanContext['repo']>): boolean {
+  const deps = repo.packageManifest?.allDeps ?? {};
+  if (Object.keys(deps).some((d) => d.startsWith('@supabase/') || d === 'supabase')) return true;
+  if (repo.files.some((f) => /(^|\/)supabase\//i.test(f))) return true;
+  return repo.sqlFiles.some((f) => {
+    const s = repo.readFile(f) ?? '';
+    return /\bauth\.uid\s*\(\)|\bauth\.users\b|create\s+policy|enable\s+row\s+level\s+security|\bto\s+(anon|authenticated)\b/i.test(s);
+  });
+}
 
 /**
  * White-box Supabase Postgres RLS analysis over .sql migration files:
@@ -21,6 +42,7 @@ export const supabaseRls: Rule = {
     if (!repo || repo.sqlFiles.length === 0) return [];
 
     const out: Finding[] = [];
+    const supabase = looksLikeSupabase(repo);
 
     // Aggregate which tables get RLS enabled anywhere across all migrations.
     const rlsEnabled = new Set<string>();
@@ -85,20 +107,55 @@ export const supabaseRls: Rule = {
       }
     }
 
+    // Distinct public tables created without RLS.
+    const seen = new Set<string>();
+    const missing: { table: string; file: string; line: number }[] = [];
     for (const c of created) {
-      if (!rlsEnabled.has(c.table)) {
+      if (rlsEnabled.has(c.table) || seen.has(c.table)) continue;
+      seen.add(c.table);
+      missing.push(c);
+    }
+
+    // Only a real risk for Supabase/PostgREST (public anon REST exposure); a plain
+    // Postgres schema reached only from a backend isn't auto-exposed. Group all
+    // missing tables into ONE finding — 20 identical cards is noise, not signal.
+    if (supabase && missing.length > 0) {
+      const NOTE =
+        ' This applies if the tables are reachable through Supabase’s API (PostgREST) with your public anon key; it is not a risk if the database is only reached from your backend.';
+      const first = missing[0]!;
+      if (missing.length === 1) {
         out.push({
           ruleId: 'DATABASE_RLS_DISABLED',
           category: 'database',
           severity: 'critical',
           cwe: 'CWE-1220',
           owasp: 'A01:2021',
-          title: `Table "${c.table}" has no Row Level Security`,
+          title: `Table "${first.table}" has no Row Level Security`,
           whyItMatters:
-            'Without RLS, anyone with your public anon key can read (and often write) every row in this table directly over the REST API.',
-          location: { file: c.file, line: c.line },
-          fix: `Run: ALTER TABLE ${c.table} ENABLE ROW LEVEL SECURITY; then add owner-scoped policies.`,
-          fixPrompt: `Enable Row Level Security on the "${c.table}" table and add policies so users can only access their own rows (e.g. using (auth.uid() = user_id)).`,
+            'Without RLS, anyone with your public anon key can read (and often write) every row in this table directly over the REST API.' + NOTE,
+          location: { file: first.file, line: first.line },
+          fix: `Run: ALTER TABLE ${first.table} ENABLE ROW LEVEL SECURITY; then add owner-scoped policies.`,
+          fixPrompt: `Enable Row Level Security on the "${first.table}" table and add policies so users can only access their own rows (e.g. using (auth.uid() = user_id)).`,
+          confidence: 'high',
+          mode: 'whitebox',
+          source: 'native',
+        });
+      } else {
+        const names = missing.map((m) => m.table);
+        const list = names.map((n) => `"${n}"`).join(', ');
+        out.push({
+          ruleId: 'DATABASE_RLS_DISABLED',
+          category: 'database',
+          severity: 'critical',
+          cwe: 'CWE-1220',
+          owasp: 'A01:2021',
+          title: `${missing.length} tables have no Row Level Security`,
+          whyItMatters:
+            `Without RLS, anyone with your public anon key can read (and often write) every row of these tables directly over the REST API: ${list}.` + NOTE,
+          evidence: names.join(', '),
+          location: { file: first.file, line: first.line },
+          fix: `Enable RLS on each table (e.g. ALTER TABLE ${names[0]} ENABLE ROW LEVEL SECURITY;) then add owner-scoped policies. Tables: ${list}.`,
+          fixPrompt: `Enable Row Level Security on these Supabase tables and add owner-scoped policies (e.g. using (auth.uid() = user_id)) so users can only access their own rows: ${list}.`,
           confidence: 'high',
           mode: 'whitebox',
           source: 'native',
