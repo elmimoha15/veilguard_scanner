@@ -4,6 +4,7 @@ import type { ScanContext, ScanReport, Finding, PassedCheck, Category } from '..
 import { ScanReportSchema } from '../types.js';
 import { rules } from '../rules/index.js';
 import { suppress, type SuppressibleFinding } from './suppress.js';
+import { contextualize } from './file-context.js';
 import { grade } from './grade.js';
 import { debug } from './helpers.js';
 import {
@@ -85,7 +86,10 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
   // rule callbacks can't race the `seen` set.
   const emit = async (raw: SuppressibleFinding[]): Promise<void> => {
     const kept = suppress(raw);
-    for (const f of kept) {
+    for (const f0 of kept) {
+      // Downgrade findings by file context (docs/content/example/test) BEFORE
+      // streaming + collecting, so the persisted finding and the grade agree.
+      const f = contextualize(f0);
       const key = dedupeKey(f);
       if (seen.has(key)) continue;
       seen.add(key);

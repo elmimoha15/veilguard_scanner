@@ -132,6 +132,10 @@ async function reconUrl(baseUrl: string): Promise<{ http: HttpArtifacts; discove
 
 const IGNORE = [
   '**/node_modules/**', '**/.next/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.git/**',
+  // Build / export output — bundled & minified copies of source. Scanning these
+  // re-flags the same code (often garbled by minification) and is never where a
+  // real leak is actionable.
+  '**/out/**', '**/.output/**', '**/.vercel/**', '**/.netlify/**', '**/.turbo/**', '**/.svelte-kit/**', '**/.nuxt/**', '**/*.min.js', '**/*.min.css', '**/*.bundle.js',
   // Third-party / generated dependency trees — scanning these yields false
   // positives from other people's code and bloats the workspace.
   '**/venv/**', '**/.venv/**', '**/__pycache__/**', '**/vendor/**', '**/.tox/**', '**/.mypy_cache/**', '**/.pytest_cache/**', '**/.gradle/**',

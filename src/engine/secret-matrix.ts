@@ -18,6 +18,31 @@ export interface SecretContext {
   name?: string;
   /** Surrounding snippet (e.g. the whole line) for extra signal. */
   line?: string;
+  /** Repo-relative file path the value came from, if known. */
+  path?: string;
+}
+
+// A placeholder PASSWORD segment — the actual secret in a connection string. We
+// key example-detection on the password (not the username: `admin`/`root`/`user`
+// can all be real), so a real password like `Xk9fJ2Lm` still fires as a leak.
+const EXAMPLE_PASS =
+  /^(password|passwd|pass|pwd|your[_-]?password|changeme|change_?me|example|placeholder|redacted|secret|s3cret|xxx+|test|dummy|mypassword|123456)$/i;
+
+/**
+ * True for an example/placeholder DB connection string like
+ * `postgres://user:password@host` or `mongodb+srv://x:${DB_PASS}@…` — the password
+ * is a generic placeholder, a bracket/interpolation token (`<pass>`, `${...}`,
+ * `%VAR%`), or a repeated-char mask. A real string (high-entropy password) does
+ * NOT match, so it still fires. Value-based → works regardless of the file.
+ */
+export function looksLikeExampleConnString(v: string): boolean {
+  const m = v.match(/^(?:postgres|postgresql|mysql|mongodb(?:\+srv)?):\/\/([^:@/\s]+):([^@/\s]+)@/i);
+  if (!m) return false;
+  const pass = m[2]!;
+  if (/^[<${%]/.test(pass)) return true; // ${DB_PASSWORD}, <password>, %PASS%
+  if (EXAMPLE_PASS.test(pass)) return true; // literal placeholder word
+  if (/^(.)\1{2,}$/.test(pass)) return true; // xxxx / **** mask
+  return false;
 }
 
 /** Patterns that are ALWAYS dangerous — never suppressed. */
@@ -73,6 +98,12 @@ function jwtRole(token: string): string | null {
 export function classifySecret(value: string, ctx: SecretContext = {}): Classification {
   const v = value.trim().replace(/^["'`]|["'`]$/g, '');
   const name = ctx.name ?? '';
+
+  // 0. Example/placeholder connection strings (postgres://user:password@host) are
+  //    teaching samples, not leaks — checked BEFORE the dangerous DB pattern.
+  if (looksLikeExampleConnString(v)) {
+    return { verdict: 'public', provider: 'placeholder', reason: 'Example connection string (placeholder credentials)' };
+  }
 
   // 1. Always-dangerous providers.
   for (const d of DANGEROUS) {

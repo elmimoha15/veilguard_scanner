@@ -44,6 +44,28 @@ describe('E2E — clean app (gate D)', () => {
   });
 });
 
+describe('E2E — docs/content fixture (false positives)', () => {
+  it('does not flag documentation/content examples as confirmed issues', async () => {
+    const report = await scan(fixture('safe/docs-content'), { skipEngines: true });
+
+    // Example connection strings in content are NOT reported as leaked secrets.
+    expect(report.findings.filter((f) => f.category === 'secrets').length).toBe(0);
+
+    // Static JSON-LD (JSON.stringify of a static object) is NOT flagged as XSS.
+    expect(report.findings.filter((f) => f.ruleId === 'INJECTION_XSS' && f.severity === 'high').length).toBe(0);
+
+    // Any webhook match in a content/article file is downgraded to low confidence,
+    // never a confirmed critical.
+    expect(
+      report.findings.filter((f) => f.category === 'api_webhooks' && f.confidence !== 'low').length,
+    ).toBe(0);
+
+    // Net effect: a docs/content file cannot force a bad grade.
+    expect(report.counts.critical).toBe(0);
+    expect(['A', 'B']).toContain(report.grade);
+  });
+});
+
 describe('Suppression fixtures (gate B)', () => {
   it('reports ZERO secret findings on public-by-design values', async () => {
     const report = await scan(fixture('safe/public-secrets'), { skipEngines: true });
