@@ -176,6 +176,23 @@ export const hardcodedSecrets: Rule = {
       }
     }
 
+    // We actually scanned something and found no exposed secrets → a real pass.
+    if (out.length === 0) {
+      const scannedRepo = !!ctx.repo && ctx.repo.files.length > 0;
+      const scannedHttp = !!ctx.http && ctx.http.reachable;
+      if (scannedRepo || scannedHttp) {
+        ctx.reportPass?.({
+          id: 'PASS_SECRETS_NONE_EXPOSED',
+          category: 'secrets',
+          title: 'No exposed secrets or API keys',
+          detail: scannedRepo
+            ? 'We scanned your code and config and found no hardcoded secrets or keys.'
+            : 'We scanned your live pages and bundled JavaScript and found no exposed secrets or keys.',
+          mode: scannedRepo ? 'whitebox' : 'blackbox',
+        });
+      }
+    }
+
     return out as Finding[];
   },
 };

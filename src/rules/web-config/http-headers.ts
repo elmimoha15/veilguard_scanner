@@ -1,12 +1,12 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 
-const REQUIRED: { header: string; label: string; sev: Finding['severity'] }[] = [
-  { header: 'content-security-policy', label: 'Content-Security-Policy', sev: 'medium' },
-  { header: 'strict-transport-security', label: 'Strict-Transport-Security (HSTS)', sev: 'medium' },
-  { header: 'x-frame-options', label: 'X-Frame-Options', sev: 'medium' },
-  { header: 'x-content-type-options', label: 'X-Content-Type-Options', sev: 'low' },
-  { header: 'referrer-policy', label: 'Referrer-Policy', sev: 'low' },
-  { header: 'permissions-policy', label: 'Permissions-Policy', sev: 'low' },
+const REQUIRED: { header: string; label: string; sev: Finding['severity']; pass: string }[] = [
+  { header: 'content-security-policy', label: 'Content-Security-Policy', sev: 'medium', pass: 'Content-Security-Policy is set' },
+  { header: 'strict-transport-security', label: 'Strict-Transport-Security (HSTS)', sev: 'medium', pass: 'HTTPS is enforced (HSTS)' },
+  { header: 'x-frame-options', label: 'X-Frame-Options', sev: 'medium', pass: 'Clickjacking protection is on (X-Frame-Options)' },
+  { header: 'x-content-type-options', label: 'X-Content-Type-Options', sev: 'low', pass: 'MIME-sniffing protection is on' },
+  { header: 'referrer-policy', label: 'Referrer-Policy', sev: 'low', pass: 'Referrer-Policy is set' },
+  { header: 'permissions-policy', label: 'Permissions-Policy', sev: 'low', pass: 'Permissions-Policy is set' },
 ];
 
 /** Black-box: which recommended security headers are missing from the live response. */
@@ -35,6 +35,15 @@ export const httpHeaders: Rule = {
           confidence: 'high',
           mode: 'blackbox',
           source: 'native',
+        });
+      } else {
+        // The header IS present — a positive result to show the user.
+        ctx.reportPass?.({
+          id: `PASS_WEB_CONFIG_${r.header.toUpperCase().replace(/-/g, '_')}`,
+          category: 'web_config',
+          title: r.pass,
+          detail: `Your site sends the ${r.label} response header.`,
+          mode: 'blackbox',
         });
       }
     }

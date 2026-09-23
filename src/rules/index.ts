@@ -23,6 +23,7 @@ import { rulesFile } from './ai-specific/rules-file.js';
 import { insecureDefaults } from './ai-specific/insecure-defaults.js';
 import { publicSecretVar } from './platform/public-secret-var.js';
 import { insecureUpload } from './business-logic/insecure-upload.js';
+import { goodPractices } from './positive/good-practices.js';
 
 /**
  * THE RULE REGISTRY. Adding a rule = import it and append it here. The runner
@@ -62,4 +63,6 @@ export const rules: Rule[] = [
   publicSecretVar,
   // business logic
   insecureUpload,
+  // positive (pass-only) detectors
+  goodPractices,
 ];

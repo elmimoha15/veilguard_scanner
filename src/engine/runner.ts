@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ScanContext, ScanReport, Finding } from '../types.js';
+import type { ScanContext, ScanReport, Finding, PassedCheck } from '../types.js';
 import { ScanReportSchema } from '../types.js';
 import { rules } from '../rules/index.js';
 import { suppress, type SuppressibleFinding } from './suppress.js';
@@ -71,6 +71,16 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
   const collected: SuppressibleFinding[] = [];
   let done = 0;
 
+  // Positive results: rules call ctx.reportPass() when they verify a good practice.
+  // Deduped by id at the end (a rule may report the same pass more than once).
+  const passSeen = new Set<string>();
+  const passed: PassedCheck[] = [];
+  ctx.reportPass = (check: PassedCheck) => {
+    if (passSeen.has(check.id)) return;
+    passSeen.add(check.id);
+    passed.push(check);
+  };
+
   // Add-if-new + suppress happens synchronously before any await, so concurrent
   // rule callbacks can't race the `seen` set.
   const emit = async (raw: SuppressibleFinding[]): Promise<void> => {
@@ -116,8 +126,10 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     if (opts.onProgress) await opts.onProgress(progress);
   }
 
-  // 3. Grade the fully-collected (already deduped + suppressed) set.
+  // 3. Grade the fully-collected (already deduped + suppressed) set. Passed checks
+  //    carry no weight — they only populate counts.passed for display.
   const { grade: g, score, counts } = grade(collected);
+  counts.passed = passed.length;
 
   const report: ScanReport = {
     target: ctx.target,
@@ -127,6 +139,7 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     score,
     counts,
     findings: collected.sort((a, b) => severityRank(b.severity) - severityRank(a.severity)),
+    passed: passed.sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title)),
     engines,
   };
 

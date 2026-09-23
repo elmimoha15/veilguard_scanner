@@ -73,6 +73,18 @@ export const rlsOpenProbe: Rule = {
         }
       }),
     );
+
+    // We probed common tables with the public anon key and none leaked rows →
+    // RLS is doing its job. (Only reported because a probe actually ran.)
+    if (out.length === 0) {
+      ctx.reportPass?.({
+        id: 'PASS_DATABASE_RLS_PROTECTING',
+        category: 'database',
+        title: 'Row-Level Security is protecting your database',
+        detail: 'Using your public key, we could not read rows from common sensitive tables — RLS is blocking anonymous access.',
+        mode: 'blackbox',
+      });
+    }
     return out;
   },
 };

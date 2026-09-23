@@ -53,6 +53,17 @@ export const sourceMaps: Rule = {
       }),
     );
 
+    // We actually probed bundles and none leaked a source map → a real pass.
+    if (out.length === 0 && candidates.length > 0) {
+      ctx.reportPass?.({
+        id: 'PASS_WEB_CONFIG_NO_SOURCEMAPS',
+        category: 'web_config',
+        title: 'Source maps are not exposed',
+        detail: 'Your production JavaScript does not serve .map files, so your original source stays private.',
+        mode: 'blackbox',
+      });
+    }
+
     // One finding is enough — the fix is global. Keep the first if several leak.
     return out.slice(0, 1);
   },

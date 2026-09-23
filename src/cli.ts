@@ -68,7 +68,7 @@ function printSummary(report: ScanReport): void {
     `  Grade: ${bold(color(GRADE_COLOR[report.grade], report.grade))}   Score: ${report.score}/100`,
   );
   console.log(
-    `  ${color(31, `${c.critical} critical`)} · ${color(31, `${c.high} high`)} · ${color(33, `${c.medium} medium`)} · ${color(36, `${c.low} low`)}`,
+    `  ${color(31, `${c.critical} critical`)} · ${color(31, `${c.high} high`)} · ${color(33, `${c.medium} medium`)} · ${color(36, `${c.low} low`)} · ${color(32, `${report.passed.length} passed`)}`,
   );
 
   const enabled = Object.entries(report.engines)
@@ -91,6 +91,12 @@ function printSummary(report: ScanReport): void {
       console.log(`    • ${f.title}`);
       if (loc) console.log(color(90, `        ${loc}`));
     }
+    console.log('');
+  }
+
+  if (report.passed.length > 0) {
+    console.log(bold(color(32, `  PASSED (${report.passed.length})`)));
+    for (const p of report.passed) console.log(color(32, `    ✓ ${p.title}`));
     console.log('');
   }
 

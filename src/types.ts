@@ -64,6 +64,24 @@ export const FindingSchema = z.object({
 export type Finding = z.infer<typeof FindingSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Passed check — a security practice the app got RIGHT (positive result).     */
+/* Carries no severity/fix and never affects the score; it's shown to the user */
+/* as "what's solid". Only reported when a rule actually evaluated the check.   */
+/* -------------------------------------------------------------------------- */
+
+export const PassedCheckSchema = z.object({
+  /** Stable id, e.g. "PASS_WEB_CONFIG_CONTENT_SECURITY_POLICY". */
+  id: z.string(),
+  category: CategorySchema,
+  /** Plain-English, founder-friendly name of the good practice. */
+  title: z.string(),
+  /** One short sentence on what was verified. */
+  detail: z.string().optional(),
+  mode: ModeSchema,
+});
+export type PassedCheck = z.infer<typeof PassedCheckSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Report                                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -94,6 +112,8 @@ export const ScanReportSchema = z.object({
   score: z.number().int(),
   counts: CountsSchema,
   findings: z.array(FindingSchema),
+  /** Security checks the app passed (positive results). Never affects the grade. */
+  passed: z.array(PassedCheckSchema),
   engines: z.object({
     semgrep: z.boolean(),
     gitleaks: z.boolean(),
@@ -180,6 +200,12 @@ export interface ScanContext {
   discovered?: DiscoveredConfig;
   repo?: RepoArtifacts;
   helpers: Helpers;
+  /**
+   * Report a security check the app PASSED. Provided by the runner; rules call it
+   * only when they actually evaluated the check (never on an early-return / no
+   * data). Optional so callers/tests that don't set it still type-check.
+   */
+  reportPass?: (check: PassedCheck) => void;
 }
 
 /* -------------------------------------------------------------------------- */
