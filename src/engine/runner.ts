@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ScanContext, ScanReport, Finding, PassedCheck } from '../types.js';
+import type { ScanContext, ScanReport, Finding, PassedCheck, Category } from '../types.js';
 import { ScanReportSchema } from '../types.js';
 import { rules } from '../rules/index.js';
 import { suppress, type SuppressibleFinding } from './suppress.js';
@@ -124,6 +124,32 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     await emit(engineFindings as SuppressibleFinding[]);
     const progress: ScanProgress = { done: ++done, total, phase: 'dependencies' };
     if (opts.onProgress) await opts.onProgress(progress);
+  }
+
+  // 2.5 Category "clean" passes: for check families we ACTUALLY ran (a rule of
+  //     that category was applicable to this target) and that produced zero
+  //     findings, record an honest "we checked X and found none" pass. Categories
+  //     with their own presence passes (secrets/database/web_config) are excluded
+  //     to avoid double-reporting.
+  const COVERAGE: { category: Category; title: string; detail: string }[] = [
+    { category: 'injection', title: 'No injection vulnerabilities found', detail: 'We checked for SQL injection, XSS, command injection and SSRF and found none.' },
+    { category: 'auth', title: 'No authentication weaknesses found', detail: 'We checked your auth and access-control code and found no obvious gaps.' },
+    { category: 'api_webhooks', title: 'No API or webhook security issues found', detail: 'We checked your API routes and webhooks and found no obvious problems.' },
+    { category: 'business_logic', title: 'No business-logic issues found', detail: 'We checked for risky patterns like unrestricted uploads and found none.' },
+    { category: 'dependencies', title: 'No known-vulnerable dependencies', detail: 'We checked your dependencies against known advisories and none were flagged.' },
+  ];
+  const ranCats = new Set(applicable.map((r) => r.category));
+  const foundCats = new Set(collected.map((f) => f.category));
+  for (const c of COVERAGE) {
+    if (ranCats.has(c.category) && !foundCats.has(c.category)) {
+      ctx.reportPass?.({
+        id: `PASS_CLEAN_${c.category.toUpperCase()}`,
+        category: c.category,
+        title: c.title,
+        detail: c.detail,
+        mode: targetType === 'url' ? 'blackbox' : 'whitebox',
+      });
+    }
   }
 
   // 3. Grade the fully-collected (already deduped + suppressed) set. Passed checks
