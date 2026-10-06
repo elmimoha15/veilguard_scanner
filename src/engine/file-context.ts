@@ -19,6 +19,7 @@ export type FileClass =
   | 'docs'
   | 'example'
   | 'test'
+  | 'build'
   | 'unknown';
 
 // Example / sample / demo / story files, and `*.example`/`.env.example` — never
@@ -45,6 +46,11 @@ const CONTENT_DIR =
 const CREDENTIAL =
   /(^|\/)(\.env(\.[^/]+)?|id_rsa|id_ed25519)$|-adminsdk-[^/]*\.json$|service-?account[^/]*\.json$|credentials[^/]*\.json$|\.(pem|key|p12|pfx|keystore|jks)$/i;
 
+// Generated build output / vendored deps — not the source of truth. Secrets here
+// are inlined copies or stale artifacts (and gitleaks can surface them from old
+// commits in history), so findings are downgraded, not treated as live leaks.
+const BUILD_OUTPUT = /(^|\/)(dist|build|out|\.next|\.nuxt|\.svelte-kit|coverage|node_modules|vendor)(\/|$)/i;
+
 const CONFIG_EXT = /\.(json|ya?ml|toml|ini|env|conf)$/i;
 const CONFIG_FILE = /(^|\/)[^/]*\.config\.[cm]?[jt]sx?$/i;
 const SOURCE_EXT_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
@@ -58,6 +64,7 @@ export function classifyFile(path?: string): FileClass {
   if (DOCS_EXT.test(p) || DOCS_DIR.test(p) || DOCS_FILE.test(p)) return 'docs';
   if (CREDENTIAL.test(p)) return 'credential';
   if (CONTENT_DIR.test(p)) return 'content';
+  if (BUILD_OUTPUT.test(p)) return 'build';
   if (CONFIG_FILE.test(p) || CONFIG_EXT.test(p)) return 'config';
   if (SOURCE_EXT_RE.test(p)) return 'source';
   return 'unknown';
@@ -65,18 +72,19 @@ export function classifyFile(path?: string): FileClass {
 
 /** True for classes that never run in production (safe to downgrade wholesale). */
 function isNonShipping(cls: FileClass): boolean {
-  return cls === 'docs' || cls === 'example' || cls === 'test';
+  return cls === 'docs' || cls === 'example' || cls === 'test' || cls === 'build';
 }
 
 function capLow(sev: Finding['severity']): Finding['severity'] {
   return sev === 'critical' || sev === 'high' || sev === 'medium' ? 'low' : sev;
 }
 
-const NOTE: Record<'docs' | 'example' | 'test' | 'content', string> = {
+const NOTE: Record<'docs' | 'example' | 'test' | 'content' | 'build', string> = {
   docs: 'Found in a documentation file — likely a teaching example, not live code. Verify it is not a real value before acting. ',
   example: 'Found in an example/sample file — likely a template, not live code. Verify it is not a real value before acting. ',
   test: 'Found in a test/fixture file — likely intentional test data, not live code. Verify before acting. ',
   content: 'Found in a content/marketing file — likely a sample in copy, not an executed code path. Verify before acting. ',
+  build: 'Found in generated build output / vendored code, not your source. Fix it in the source file (and rotate if it is a real secret). ',
 };
 
 // Code-pattern categories whose matches inside CONTENT prose are usually samples
@@ -97,11 +105,16 @@ export function contextualize(f: Finding): Finding {
       ...f,
       severity: capLow(f.severity),
       confidence: 'low',
-      whyItMatters: NOTE[cls as 'docs' | 'example' | 'test'] + f.whyItMatters,
+      whyItMatters: NOTE[cls as 'docs' | 'example' | 'test' | 'build'] + f.whyItMatters,
     };
   }
 
-  if (cls === 'content' && CONTENT_DOWNGRADE_CATEGORIES.has(f.category)) {
+  // Content/marketing copy: downgrade code-pattern categories always, and secrets
+  // too when they came from an external engine (gitleaks), which is noisier and
+  // lacks our rules' inline value-guards. A native secret finding in content is
+  // still left to the value-based classifier (secret-matrix).
+  const engineSourced = f.source !== 'native';
+  if (cls === 'content' && (CONTENT_DOWNGRADE_CATEGORIES.has(f.category) || (f.category === 'secrets' && engineSourced))) {
     return {
       ...f,
       severity: capLow(f.severity),

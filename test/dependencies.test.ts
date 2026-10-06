@@ -14,12 +14,18 @@ describe('DEPENDENCIES_KNOWN_CVE', () => {
     expect((await knownCve.run(ctx)).length).toBe(0);
   });
 
-  it('provisional TODO advisories fire against their sentinel range (999.x)', async () => {
-    // The sentinel range proves the version-check MECHANISM works today; the
-    // real ranges are TODO constants to be plugged in once confirmed.
-    const ctx = makeRepoContext({ 'package.json': JSON.stringify({ dependencies: { next: '999.0.0' } }) });
-    const ids = (await knownCve.run(ctx)).map((f) => f.ruleId);
-    expect(ids).toContain('DEPENDENCIES_NEXTJS_IMAGE_RESOURCE_EXHAUSTION_TODO');
-    expect(ids).toContain('DEPENDENCIES_NEXTJS_SERVER_ACTIONS_SSRF_TODO');
+  it('only ships confirmed advisories (no unverified/sentinel entries)', async () => {
+    // Guard against re-introducing fake advisories (the removed GHSA-NEXT-OUTDATED
+    // / CVE-2025-55182 / 999.x sentinels). A real install must never match a
+    // placeholder range, and the fabricated ids must not come back.
+    const sentinel = makeRepoContext({ 'package.json': JSON.stringify({ dependencies: { next: '999.0.0' } }) });
+    expect((await knownCve.run(sentinel)).length).toBe(0);
+
+    const react19 = makeRepoContext({
+      'package.json': JSON.stringify({ dependencies: { react: '19.0.0', 'react-dom': '19.0.0' } }),
+    });
+    const ids = (await knownCve.run(react19)).map((f) => f.ruleId);
+    expect(ids).not.toContain('DEPENDENCIES_CVE_2025_55182');
+    expect(ids).not.toContain('DEPENDENCIES_GHSA_NEXT_OUTDATED');
   });
 });
