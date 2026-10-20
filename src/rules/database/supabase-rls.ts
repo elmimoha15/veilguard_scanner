@@ -11,17 +11,75 @@ const ENABLE_RLS = new RegExp(String.raw`alter\s+table\s+(?:only\s+)?${QUALIFIED
 const PERMISSIVE = /using\s*\(\s*(true|1\s*=\s*1|auth\.uid\(\)\s+is\s+not\s+null)\s*\)/gi;
 /** Tables that are public by design in almost every app (storefront catalogs, CMS). */
 const PUBLIC_CATALOG = /^(products?|prices?|plans?|pricing|tiers?|categories|category|tags?|features?|faqs?|countries|currencies|locales?|public_[a-z0-9_]+|catalog[a-z0-9_]*|menu[a-z0-9_]*|posts?|articles?|blog[a-z0-9_]*|changelog[a-z0-9_]*)$/i;
-/** Tables that almost always hold private, per-user data. */
-const SENSITIVE_TABLE = /(profile|user|account|customer|order|payment|invoice|subscription|message|chat|conversation|note|document|file|secret|token|key|address|billing|wallet|transaction|session|private)/i;
+
+/** Columns that are personal data on ANY table. */
+const PERSONAL_COLUMN = /^(e_?mail|email_address|phone|phone_number|mobile|tel|address|address_line\d?|street|postcode|postal_code|zip|zip_code|full_name|first_name|last_name|surname|dob|date_of_birth|birth_?date|birthday|ssn|national_id|passport|id_number|card|card_number|cc_number|iban|bank_account|account_number|payment_method|billing_address|stripe_customer_id|customer_id|tax_id|vat_id|ip|ip_address|gender)$/i;
+/** Generic columns that are personal only on a person-like table (products have a `name` too). */
+const PERSON_ONLY_COLUMN = /^(name|display_name|username|avatar_url|location|city|country|lat|lng|latitude|longitude|bio)$/i;
+const PERSON_TABLE = /(profile|user|account|customer|member|contact|employee|patient|student|lead|people|person|client|subscriber|applicant|candidate)/i;
+/** Columns that make a "catalog" table not safe to suppress. */
+const SENSITIVE_COLUMN = /(user_?id|owner|created_by|secret|token|api_?key|password|passwd|private|internal|cost|margin)/i;
+
+function personalColumns(table: string, cols: string[]): string[] {
+  return cols.filter((c) => PERSONAL_COLUMN.test(c) || (PERSON_TABLE.test(table) && PERSON_ONLY_COLUMN.test(c)));
+}
+
+/** Column names from a `create table … ( … )` body (constraints skipped). */
+function parseColumns(body: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of body) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts
+    .map((p) => p.replace(/--[^\n]*/g, '').trim())
+    .filter((p) => p && !/^(constraint|primary|foreign|unique|check|exclude|like)\b/i.test(p))
+    .map((p) => p.match(/^"?([a-z_][a-z0-9_]*)"?/i)?.[1]?.toLowerCase() ?? '')
+    .filter(Boolean);
+}
+
+/** Every table's columns across all migrations (create table + alter table add column). */
+function collectColumns(repo: NonNullable<ScanContext['repo']>): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const add = (t: string, c: string[]) => { const set = out.get(t) ?? new Set<string>(); c.forEach((x) => set.add(x)); out.set(t, set); };
+  for (const file of repo.sqlFiles) {
+    const sql = repo.readFile(file) ?? '';
+    const createRe = new RegExp(String.raw`create\s+table\s+(?:if\s+not\s+exists\s+)?${QUALIFIED}\s*\(`, 'gi');
+    for (const m of sql.matchAll(createRe)) {
+      const start = (m.index ?? 0) + m[0].length;
+      let depth = 1;
+      let i = start;
+      for (; i < sql.length && depth > 0; i++) { if (sql[i] === '(') depth++; else if (sql[i] === ')') depth--; }
+      add(m[1]!.toLowerCase(), parseColumns(sql.slice(start, i - 1)));
+    }
+    const alterRe = new RegExp(String.raw`alter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?${QUALIFIED}\s+add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?`, 'gi');
+    for (const m of sql.matchAll(alterRe)) add(m[1]!.toLowerCase(), [m[2]!.toLowerCase()]);
+  }
+  return out;
+}
+
+/** Supabase lets anyone sign up unless the project disables it (config.toml [auth] enable_signup = false). */
+function signupOpen(repo: NonNullable<ScanContext['repo']>): boolean {
+  const cfg = repo.files.find((f) => /(^|\/)supabase\/config\.toml$/.test(f));
+  const text = cfg ? repo.readFile(cfg) ?? '' : '';
+  const auth = text.split(/^\s*\[/m).find((sec) => /^auth\]/.test(sec)) ?? '';
+  return !/^\s*enable_signup\s*=\s*false\b/m.test(auth);
+}
 
 /** The `create policy … on <table> [for <cmd>]` statement a USING clause belongs to. */
-function policyFor(sql: string, index: number): { name: string; table: string; cmd: string } {
+function policyFor(sql: string, index: number): { name: string; table: string; cmd: string; toAuthenticated: boolean } {
   const start = sql.toLowerCase().lastIndexOf('create policy', index);
   const stmt = start >= 0 ? sql.slice(start, index) : '';
   const name = stmt.match(/create\s+policy\s+"([^"]*)"/i)?.[1] ?? '';
   const table = stmt.match(new RegExp(String.raw`\son\s+${QUALIFIED}`, 'i'))?.[1]?.toLowerCase() ?? '';
   const cmd = stmt.match(/\sfor\s+(select|insert|update|delete|all)\b/i)?.[1]?.toLowerCase() ?? 'all';
-  return { name, table, cmd };
+  const toAuthenticated = /\sto\s+authenticated\b/i.test(stmt);
+  return { name, table, cmd, toAuthenticated };
 }
 
 const SECURITY_DEFINER_VIEW = new RegExp(String.raw`create\s+(?:or\s+replace\s+)?view\s+${QUALIFIED}`, 'gi');
@@ -58,6 +116,8 @@ export const supabaseRls: Rule = {
 
     const out: Finding[] = [];
     const supabase = looksLikeSupabase(repo);
+    const columns = collectColumns(repo);
+    const openSignup = signupOpen(repo);
 
     // Aggregate which tables get RLS enabled anywhere across all migrations.
     const rlsEnabled = new Set<string>();
@@ -79,32 +139,44 @@ export const supabaseRls: Rule = {
       // Over-permissive policies, graded by what they allow and on which table.
       for (const m of safeRegexScan(sql, PERMISSIVE)) {
         const p = policyFor(sql, m.index);
-        const anyone = /true|1\s*=\s*1/i.test(m.match); // vs "any signed-in user"
+        // `to authenticated` limits even `using (true)` to signed-in users.
+        const anyone = /true|1\s*=\s*1/i.test(m.match) && !p.toAuthenticated;
         const readOnly = p.cmd === 'select';
-        const catalog = PUBLIC_CATALOG.test(p.table) || /\bpublic\b/i.test(p.name);
-        const sensitive = SENSITIVE_TABLE.test(p.table);
-        // Public read of a catalog (products, prices, posts…) is the intended design.
-        if (readOnly && catalog) continue;
+        const cols = columns.get(p.table);
+        const personal = cols ? personalColumns(p.table, [...cols]) : [];
+        const catalogName = PUBLIC_CATALOG.test(p.table) || /\bpublic\b/i.test(p.name);
+        const sensitiveCols = cols ? [...cols].some((c) => SENSITIVE_COLUMN.test(c)) : true;
 
         let severity: Finding['severity'];
         let confidence: Finding['confidence'];
         let title: string;
+        let verifyHint: string | undefined;
         if (!readOnly) {
           severity = 'critical';
           confidence = 'high';
           title = anyone
             ? `A Row Level Security policy lets anyone change "${p.table || 'a table'}"`
             : `A Row Level Security policy lets any signed-in user change every row of "${p.table || 'a table'}"`;
-        } else if (sensitive) {
-          severity = anyone ? 'critical' : 'high';
+        } else if (personal.length) {
+          // Personal data readable by anyone, or by any account when strangers can sign up.
+          severity = anyone || openSignup ? 'critical' : 'high';
           confidence = 'high';
           title = anyone
-            ? `Anyone can read every row of "${p.table}"`
-            : `Any signed-in user can read every row of "${p.table}"`;
-        } else {
+            ? `Anyone can read the personal data in "${p.table}"`
+            : `Any signed-in user can read the personal data in "${p.table}"${openSignup ? ', and anyone can sign up' : ''}`;
+        } else if (!cols) {
+          // We can't see this table's columns, so we can't tell what's exposed. Say so; never hide it.
           severity = 'medium';
           confidence = 'low';
           title = `"${p.table || 'A table'}" is readable by ${anyone ? 'anyone' : 'any signed-in user'}`;
+          verifyHint = `We couldn't find "${p.table}"'s columns. If it only holds public data (like a catalog), this is fine. If it holds anything private or personal, scope the policy to the owner.`;
+        } else if (catalogName && !sensitiveCols) {
+          // A public catalog (products, prices, posts) with nothing private in it: the intended design.
+          continue;
+        } else {
+          severity = 'high';
+          confidence = 'high';
+          title = `${anyone ? 'Anyone' : 'Any signed-in user'} can read every row of "${p.table}"`;
         }
         out.push({
           ruleId: 'DATABASE_RLS_PERMISSIVE_POLICY',
@@ -116,13 +188,13 @@ export const supabaseRls: Rule = {
           whyItMatters: anyone
             ? 'A policy of `using (true)` applies to every visitor. On Supabase anyone can call your API with the public key, so every row this policy covers is open to them.'
             : 'A policy like `using (auth.uid() is not null)` checks only that someone is signed in. On Supabase anyone can sign up, so every user can reach every row, not just their own.',
-          evidence: `${p.cmd.toUpperCase()} on ${p.table || '?'}: ${m.match}`,
+          evidence: `${p.cmd.toUpperCase()} on ${p.table || '?'}${personal.length ? ` (personal: ${personal.slice(0, 4).join(', ')})` : ''}: ${m.match}`,
           location: { file, line: m.line },
           fix: 'Scope the policy to the owner, e.g. `using (auth.uid() = user_id)`.',
           fixPrompt:
             'Rewrite this Supabase RLS policy so it only allows a user to access their own rows, e.g. `using (auth.uid() = user_id)` instead of allowing everyone or every signed-in user.',
           confidence,
-          ...(confidence === 'low' ? { verifyHint: `If "${p.table}" only holds public data (like a catalog), this is fine. If it holds anything private, scope the policy to the owner.` } : {}),
+          ...(verifyHint ? { verifyHint } : {}),
           mode: 'whitebox',
           source: 'native',
         });

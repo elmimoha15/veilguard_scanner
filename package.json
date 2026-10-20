@@ -1,14 +1,18 @@
 {
   "name": "veilguard-scanner",
   "version": "0.1.0",
-  "description": "Standalone security scanner for AI-built web/SaaS apps (Next.js + Supabase/Firebase + Stripe). Scans a live URL or a code repo and emits findings + an A–F grade.",
+  "description": "Standalone security scanner for AI-built web/SaaS apps (Next.js + Supabase/Firebase + Stripe). Scans a live URL or a code repo and emits findings + an A\u2013F grade.",
   "type": "module",
   "bin": {
     "veilguard": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist/", "semgrep-rules/", "README.md"],
+  "files": [
+    "dist/",
+    "semgrep-rules/",
+    "README.md"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
@@ -20,9 +24,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gate": "tsx test/gate.ts"
+    "gate": "tsx test/gate.ts",
+    "gate:engines": "VG_ENGINES=1 tsx test/gate.ts",
+    "test:engines": "VG_ENGINES=1 vitest run"
   },
-  "keywords": ["security", "scanner", "sast", "supabase", "stripe", "nextjs"],
+  "keywords": [
+    "security",
+    "scanner",
+    "sast",
+    "supabase",
+    "stripe",
+    "nextjs"
+  ],
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {

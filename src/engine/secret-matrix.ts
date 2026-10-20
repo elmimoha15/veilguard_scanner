@@ -59,7 +59,8 @@ const DANGEROUS: { provider: string; re: RegExp; reason: string }[] = [
 const PUBLIC: { provider: string; re: RegExp; reason: string }[] = [
   { provider: 'stripe', re: /\bpk_(live|test)_[A-Za-z0-9]{10,}/, reason: 'Stripe publishable key (public by design)' },
   { provider: 'supabase', re: /\bsb_publishable_[A-Za-z0-9]{10,}/, reason: 'Supabase publishable key (public by design)' },
-  { provider: 'firebase', re: /\bAIza[0-9A-Za-z_-]{35}\b/, reason: 'Firebase web apiKey (public by design)' },
+  { provider: 'firebase', re: /\bAIza[0-9A-Za-z_-]{30,40}/, reason: 'Firebase web apiKey (public by design)' },
+  { provider: 'mapbox', re: /\bpk\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/, reason: 'Mapbox public access token (public by design)' },
   { provider: 'posthog', re: /\bphc_[A-Za-z0-9]{20,}/, reason: 'PostHog project key (public by design)' },
   { provider: 'sentry', re: /https:\/\/[a-f0-9]{16,}@[a-z0-9.-]+\.ingest\.sentry\.io\/\d+/, reason: 'Sentry DSN (public by design)' },
 ];

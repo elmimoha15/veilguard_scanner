@@ -1,5 +1,17 @@
 import type { Finding } from '../types.js';
 import { classifySecret } from './secret-matrix.js';
+import { looksLikeSecretValue } from './evidence.js';
+
+/**
+ * Findings whose secret VALUE was proven real (provider format or a real-looking
+ * random token). Path context never downgrades these: a real key in a demo
+ * component, a doc or an article is still a leaked key. Held in a WeakSet so no
+ * extra field ever reaches the report or Firestore.
+ */
+const proven = new WeakSet<Finding>();
+export function isValueProven(f: Finding): boolean {
+  return proven.has(f);
+}
 import { debug } from './helpers.js';
 
 /**
@@ -69,6 +81,13 @@ export function suppress(findings: SuppressibleFinding[]): Finding[] {
     if (clean.ruleId === 'WEB_CONFIG_CORS_WILDCARD_CREDENTIALS' && DOCUMENTED_PUBLIC_API.test(locationText(clean))) {
       debug(`down-ranked ${clean.ruleId} @ ${clean.location?.file ?? clean.location?.url ?? '?'}: documented public API`);
       clean.confidence = 'low';
+    }
+
+    // Native value findings: proven when the value itself looks real. Engine
+    // (gitleaks) findings: only when the value is a known provider format, since
+    // its generic rules are noisy.
+    if (_raw && (f.source === 'native' ? looksLikeSecretValue(_raw) : classifySecret(_raw).verdict === 'dangerous')) {
+      proven.add(clean);
     }
 
     kept.push(clean);

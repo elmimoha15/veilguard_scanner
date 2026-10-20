@@ -89,7 +89,10 @@
   },
   "safe/patched-next-lockfile": {
     "kind": "safe",
-    "why": "The lockfile resolves a patched Next.js."
+    "why": "The lockfile resolves a patched Next.js. (OSV is excluded here: it queries the live advisory database, which reports real later advisories for any pinned version; this case only tests the lockfile-aware native rule.)",
+    "ignoreSources": [
+      "osv-scanner"
+    ]
   },
   "safe/middleware-enforced-auth": {
     "kind": "safe",
@@ -509,5 +512,97 @@
         "minConfidence": "high"
       }
     ]
+  },
+  "vulnerable/rls-select-personal-signed-in": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "Personal data readable by any account while anyone can sign up."
+  },
+  "vulnerable/rls-select-nonpersonal-wide": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "Over-broad read of non-personal data stays high."
+  },
+  "vulnerable/rls-catalog-with-user-id": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "A catalog-named table with owner/cost columns must not be suppressed."
+  },
+  "vulnerable/rls-personal-signup-closed": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "Signup closed: personal data readable by any account is high, not critical."
+  },
+  "safe/rls-unknown-columns": {
+    "kind": "safe",
+    "why": "Columns unknown: shown as a low \"Possible: verify\", never hidden and never medium+."
+  },
+  "vulnerable/secret-in-showcase-component": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_STRIPE_SECRET_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "A real key in a demo component is still a leaked key."
+  },
+  "vulnerable/secret-in-docs-md": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_STRIPE_WEBHOOK_SECRET",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "A real secret pasted into docs is a leak."
+  },
+  "vulnerable/secret-in-content-article": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_SUPABASE_SERVICE_ROLE_JWT",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "A real service-role token in article content is a leak."
+  },
+  "vulnerable/public-secret-value-in-demo": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "PLATFORM_PUBLIC_SECRET_VAR",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ],
+    "why": "A real secret value behind a public prefix fires even in a demo component."
   }
 }

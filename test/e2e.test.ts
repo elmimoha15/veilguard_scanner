@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { scan } from '../src/index.js';
 import { ScanReportSchema } from '../src/types.js';
+import { ENGINES } from './corpus.js';
 
 const fixture = (p: string) => fileURLToPath(new URL(`../test-fixtures/${p}`, import.meta.url));
 
 describe('E2E — QuickCart (gate C)', () => {
   it('produces a D/F grade with the required critical findings', async () => {
-    const report = await scan(fixture('vulnerable/quickcart'), { skipEngines: true });
+    const report = await scan(fixture('vulnerable/quickcart'), { skipEngines: !ENGINES });
 
     // Schema validity.
     expect(() => ScanReportSchema.parse(report)).not.toThrow();
@@ -38,7 +39,7 @@ describe('E2E — QuickCart (gate C)', () => {
 
 describe('E2E — clean app (gate D)', () => {
   it('returns grade A/B and zero criticals', async () => {
-    const report = await scan(fixture('safe/clean-app'), { skipEngines: true });
+    const report = await scan(fixture('safe/clean-app'), { skipEngines: !ENGINES });
     expect(['A', 'B']).toContain(report.grade);
     expect(report.counts.critical).toBe(0);
   });
@@ -46,7 +47,7 @@ describe('E2E — clean app (gate D)', () => {
 
 describe('E2E — docs/content fixture (false positives)', () => {
   it('does not flag documentation/content examples as confirmed issues', async () => {
-    const report = await scan(fixture('safe/docs-content'), { skipEngines: true });
+    const report = await scan(fixture('safe/docs-content'), { skipEngines: !ENGINES });
 
     // Example connection strings in content are NOT reported as leaked secrets.
     expect(report.findings.filter((f) => f.category === 'secrets').length).toBe(0);
@@ -68,11 +69,11 @@ describe('E2E — docs/content fixture (false positives)', () => {
 
 describe('Suppression fixtures (gate B)', () => {
   it('reports ZERO secret findings on public-by-design values', async () => {
-    const report = await scan(fixture('safe/public-secrets'), { skipEngines: true });
+    const report = await scan(fixture('safe/public-secrets'), { skipEngines: !ENGINES });
     expect(report.findings.filter((f) => f.category === 'secrets').length).toBe(0);
   });
   it('reports each real secret as CRITICAL', async () => {
-    const report = await scan(fixture('safe/dangerous-secrets'), { skipEngines: true });
+    const report = await scan(fixture('safe/dangerous-secrets'), { skipEngines: !ENGINES });
     const crit = report.findings.filter((f) => f.severity === 'critical').map((f) => f.ruleId);
     expect(crit).toContain('SECRETS_STRIPE_SECRET_KEY');
     expect(crit).toContain('SECRETS_SUPABASE_SERVICE_ROLE');

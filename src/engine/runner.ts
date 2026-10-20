@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { ScanContext, ScanReport, Finding, PassedCheck, Category } from '../types.js';
 import { ScanReportSchema } from '../types.js';
 import { rules } from '../rules/index.js';
-import { suppress, type SuppressibleFinding } from './suppress.js';
+import { suppress, isValueProven, type SuppressibleFinding } from './suppress.js';
 import { contextualize, suppressedByContext } from './file-context.js';
 import { calibrate } from './calibrate.js';
 import { grade } from './grade.js';
@@ -145,7 +145,7 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
   const emit = async (raw: SuppressibleFinding[]): Promise<void> => {
     const kept = suppress(raw);
     for (const f0 of kept) {
-      if (suppressedByContext(f0)) {
+      if (!isValueProven(f0) && suppressedByContext(f0)) {
         debug(`suppressed ${f0.ruleId} @ ${f0.location?.file}: sample in a non-production file`);
         continue;
       }

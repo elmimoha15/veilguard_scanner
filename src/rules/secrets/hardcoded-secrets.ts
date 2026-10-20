@@ -174,7 +174,8 @@ export const hardcodedSecrets: Rule = {
     // White-box: scan repo source + config + env files.
     if (ctx.repo) {
       for (const path of ctx.repo.files) {
-        if (!CODE_AND_CONFIG_EXT.test(path) && !/(^|\/)\.env/.test(path) && !/service-account|serviceAccount|credentials/.test(path)) {
+        // Docs and text files too: a real key pasted into a README is still a leak.
+        if (!CODE_AND_CONFIG_EXT.test(path) && !/\.(md|mdx|txt)$/i.test(path) && !/(^|\/)\.env/.test(path) && !/service-account|serviceAccount|credentials/.test(path)) {
           continue;
         }
         const content = ctx.repo.readFile(path);

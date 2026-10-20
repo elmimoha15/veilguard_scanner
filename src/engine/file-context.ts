@@ -10,6 +10,7 @@
  * value-based guards in the rules themselves (JSON-LD/static XSS, example creds).
  */
 import type { Finding } from '../types.js';
+import { isValueProven } from './suppress.js';
 
 export type FileClass =
   | 'source'
@@ -112,6 +113,8 @@ const CONTENT_DOWNGRADE_CATEGORIES = new Set(['injection', 'api_webhooks', 'busi
  * for real source/config/credential/unknown. Never raises severity/confidence.
  */
 export function contextualize(f: Finding): Finding {
+  // A proven real secret value fires at full strength wherever it is.
+  if (isValueProven(f)) return f;
   const cls = classifyFile(f.location?.file);
 
   if (isNonShipping(cls)) {

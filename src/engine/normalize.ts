@@ -1,7 +1,8 @@
-import { relative } from 'node:path';
+import { relative, isAbsolute } from 'node:path';
 import type { Finding } from '../types.js';
 import type { SuppressibleFinding } from './suppress.js';
 import { classifySecret } from './secret-matrix.js';
+import { isPlaceholder, looksLikeSecretValue, redactSecret } from './evidence.js';
 import { parseVersion, compare } from './version.js';
 import { debug } from './helpers.js';
 
@@ -30,12 +31,22 @@ export function normalizeGitleaks(raw: string | null, root: string): Suppressibl
     const rawValue = String(r.Secret ?? r.Match ?? '');
     if (!rawValue) continue;
     const line = r.Match ? String(r.Match) : undefined;
-    const c = classifySecret(rawValue, { line });
+    // The variable name in the matched line (`NAME=value` / `NAME: 'value'`), so
+    // public-prefixed, non-secret names (NEXT_PUBLIC_SITE_URL…) classify as public.
+    const name = line?.match(/([A-Za-z_][A-Za-z0-9_]*)["']?\s*[:=]/)?.[1];
+    const c = classifySecret(rawValue, { line, name });
 
     // Public-by-design values are not leaks — drop them here (suppress.ts
     // double-guards via `_raw`, but dropping early keeps the stream clean).
     if (c.verdict === 'public') {
       debug(`gitleaks ${r.RuleID}: classified public (${c.reason}) — not a leak`);
+      continue;
+    }
+
+    // Placeholders, and generic-rule matches that don't look like a real random
+    // secret (length + entropy), are not evidence.
+    if (isPlaceholder(rawValue) || (c.verdict !== 'dangerous' && !looksLikeSecretValue(rawValue))) {
+      debug(`gitleaks ${r.RuleID}: not a real-looking secret value — skipped`);
       continue;
     }
 
@@ -56,8 +67,9 @@ export function normalizeGitleaks(raw: string | null, root: string): Suppressibl
       whyItMatters: dangerous
         ? 'This looks like a real credential committed to the repo. Anyone who can see the code — or its git history — can use it to access your systems.'
         : 'A value matching a known secret pattern is committed to the repo. If it is a real credential, anyone who sees the code or its git history can use it.',
-      evidence: rawValue ? `${rawValue.slice(0, 8)}… (redacted)` : undefined,
-      location: { file: r.File ? relative(root, r.File) : undefined, line: r.StartLine },
+      evidence: redactSecret(rawValue),
+      // `dir` mode reports absolute paths, `git` mode repo-relative ones.
+      location: { file: r.File ? (isAbsolute(String(r.File)) ? relative(root, String(r.File)) : String(r.File)) : undefined, line: r.StartLine },
       fix: `Rotate this credential now, then store it in an environment variable and read it from there (never commit it).${
         inHistory ? ' It also remains in your git history — purge it (e.g. with git filter-repo) after rotating.' : ''
       }`,

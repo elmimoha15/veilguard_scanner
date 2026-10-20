@@ -81,7 +81,7 @@ export const publicSecretVar: Rule = {
     const withValue = (name: string, value: string, loc: { file?: string; line?: number; url?: string }, mode: 'whitebox' | 'blackbox') => {
       if (!sensitive(name) || !looksLikeSecretValue(value)) return;
       if (!once(`v|${loc.file ?? loc.url}|${name}`)) return;
-      out.push(mkFinding({
+      out.push({ _raw: value, ...mkFinding({
         name,
         severity: 'high',
         confidence: 'high',
@@ -89,7 +89,7 @@ export const publicSecretVar: Rule = {
         loc,
         mode,
         title: mode === 'blackbox' ? `A secret value for "${name}" is shipped to the browser` : `"${name}" holds a secret but is exposed to the browser`,
-      }));
+      }) } as Finding);
     };
 
     if (ctx.repo) {

@@ -8,6 +8,7 @@ import { execa } from 'execa';
 import { scan } from '../src/index.js';
 import { ScanReportSchema } from '../src/types.js';
 import { loadCases, scanCase, precisionViolations, recallMisses } from './corpus.js';
+import { ENGINES } from './corpus.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const fixture = (p: string) => fileURLToPath(new URL(`../test-fixtures/${p}`, import.meta.url));
@@ -27,7 +28,7 @@ function record(id: string, label: string, pass: boolean, detail: string) {
 async function main() {
   // A) Unit tests (the vitest suite).
   try {
-    const res = await execa('npx', ['vitest', 'run', '--reporter=dot'], { cwd: root, reject: false });
+    const res = await execa('npx', ['vitest', 'run', '--reporter=dot'], { cwd: root, reject: false, env: { ...process.env } });
     const pass = res.exitCode === 0;
     const m = `${res.stdout}\n${res.stderr}`.match(/Tests\s+(\d+)\s+passed/i);
     record('A', 'Unit tests (one+ per rule module)', pass, pass ? `vitest suite passed${m ? ` (${m[1]} tests)` : ''}` : 'vitest suite failed');
@@ -37,8 +38,8 @@ async function main() {
 
   // B) Suppression.
   try {
-    const pub = await scan(fixture('safe/public-secrets'), { skipEngines: true });
-    const danger = await scan(fixture('safe/dangerous-secrets'), { skipEngines: true });
+    const pub = await scan(fixture('safe/public-secrets'), { skipEngines: !ENGINES });
+    const danger = await scan(fixture('safe/dangerous-secrets'), { skipEngines: !ENGINES });
     const pubSecrets = pub.findings.filter((f) => f.category === 'secrets').length;
     const crit = new Set(danger.findings.filter((f) => f.severity === 'critical').map((f) => f.ruleId));
     const required = ['SECRETS_STRIPE_SECRET_KEY', 'SECRETS_SUPABASE_SERVICE_ROLE', 'SECRETS_PRIVATE_KEY'];
@@ -50,7 +51,7 @@ async function main() {
 
   // C) E2E QuickCart.
   try {
-    const report = await scan(fixture('vulnerable/quickcart'), { skipEngines: true });
+    const report = await scan(fixture('vulnerable/quickcart'), { skipEngines: !ENGINES });
     const schemaOk = ScanReportSchema.safeParse(report).success;
     const ids = new Set(report.findings.map((f) => f.ruleId));
     const criticals = new Set(report.findings.filter((f) => f.severity === 'critical').map((f) => f.ruleId));
@@ -75,7 +76,7 @@ async function main() {
 
   // D) No-crash clean project.
   try {
-    const report = await scan(fixture('safe/clean-app'), { skipEngines: true });
+    const report = await scan(fixture('safe/clean-app'), { skipEngines: !ENGINES });
     const pass = (report.grade === 'A' || report.grade === 'B') && report.counts.critical === 0;
     record('D', 'No-crash clean project → A/B, 0 criticals', pass, `grade ${report.grade}, ${report.counts.critical} criticals`);
   } catch (err) {
@@ -119,7 +120,7 @@ async function main() {
   const green = '\x1b[32m';
   const red = '\x1b[31m';
   const reset = '\x1b[0m';
-  console.log('\n══════════════ GATE RESULTS ══════════════');
+  console.log(`\n══════════════ GATE RESULTS${ENGINES ? ' (engines: gitleaks + osv-scanner)' : ''} ══════════════`);
   for (const r of results) {
     const mark = r.pass ? `${green}PASS${reset}` : `${red}FAIL${reset}`;
     console.log(`  ${r.id})  ${mark}  ${r.label}`);

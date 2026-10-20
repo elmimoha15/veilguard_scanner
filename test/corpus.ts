@@ -18,6 +18,9 @@ import { runScan } from '../src/engine/runner.js';
 import { helpers } from '../src/engine/helpers.js';
 import type { Finding, ScanContext, Severity, Confidence } from '../src/types.js';
 
+/** VG_ENGINES=1 runs every scan with the real gitleaks + osv-scanner (as the worker does). */
+export const ENGINES = process.env.VG_ENGINES === '1';
+
 export const CORPUS = fileURLToPath(new URL('../test-fixtures/corpus/', import.meta.url));
 
 export interface Expectation { ruleId: string; minSeverity: Severity; minConfidence: Confidence }
@@ -27,6 +30,8 @@ export interface CaseMeta {
   /** Present for URL-scan cases: what the live site serves. */
   url?: { headers: Record<string, string>; bundles: string[]; html?: string; responses?: Record<string, string> };
   expect?: Expectation[];
+  /** Sources whose findings this case doesn't judge (e.g. live OSV advisories). */
+  ignoreSources?: Finding['source'][];
 }
 
 export const SEV_RANK: Record<Severity, number> = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
@@ -39,9 +44,10 @@ export function loadCases(): [string, CaseMeta][] {
 /** Scan one case through the real engine (URL cases get a stubbed, offline network). */
 export async function scanCase(name: string, meta: CaseMeta): Promise<Finding[]> {
   const dir = join(CORPUS, name);
+  const keep = (fs: Finding[]) => fs.filter((f) => !meta.ignoreSources?.includes(f.source));
   if (!meta.url) {
     const ctx = await buildContext({ type: 'repo', value: dir });
-    return (await runScan(ctx, { skipEngines: true })).findings;
+    return keep((await runScan(ctx, { skipEngines: !ENGINES })).findings);
   }
   const base = 'https://app.test';
   const read = (f: string) => readFileSync(join(dir, f), 'utf8');
@@ -62,7 +68,7 @@ export async function scanCase(name: string, meta: CaseMeta): Promise<Finding[]>
       },
     },
   };
-  return (await runScan(ctx, { skipEngines: true })).findings;
+  return (await runScan(ctx, { skipEngines: !ENGINES })).findings;
 }
 
 /** Medium+ findings a SAFE case must never produce. */
