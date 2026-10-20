@@ -103,6 +103,10 @@ export function looksLikeSecretValue(value: string): boolean {
   const c = classifySecret(v);
   if (c.verdict === 'public') return false;
   if (c.verdict === 'dangerous') return true;
+  // A URL is only secret if it carries credentials or a token parameter; an
+  // email address never is.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return /:\/\/[^/\s:@]+:[^/\s@]+@|[?&](key|token|secret|sig|signature|password|access_token)=/i.test(v);
+  if (/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v)) return false;
   const b = body(v);
   if (b.length < 16) return false;
   if (/\s/.test(b)) return false; // prose, not a token

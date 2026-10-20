@@ -1,0 +1,1 @@
+const c={supabaseUrl:"https://qwertyuiopasdfghjklz.supabase.co",supabaseKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3ZXJ0eXVpb3Bhc2RmZ2hqa2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.Vb7nQ2xR9kLm4TpW8yZc3FhJ6sDg1aEu5oIwq0rKtNv",stripe:"pk_live_51QabcdEFGH1234567890publishablekey"};

@@ -22,6 +22,14 @@ export const commandInjection: Rule = {
       forEachCall(ast, (node, line) => {
         const name = calleeName(node);
         if (!EXEC.test(name)) return;
+        // `x.exec()` is a command only when x is child_process (or its alias);
+        // `ID_RE.exec()` is a regex and `db.exec()` is SQL. Bare exec()/spawn()
+        // are the destructured child_process functions.
+        if (name.includes('.')) {
+          const recv = name.split('.').slice(-2, -1)[0] ?? '';
+          const alias = ast.content.match(/(?:import\s+\*\s+as\s+|import\s+|(?:const|let|var)\s+)(\w+)\s*(?:=\s*require\(\s*)?(?:from\s*)?['"](?:node:)?child_process['"]/)?.[1];
+          if (!/^(child_process|childProcess|cp|proc|shell)$/.test(recv) && recv !== alias) return;
+        }
         const arg = node.arguments?.[0];
         if (arg && isTaintedTemplateOrConcat(arg)) {
           out.push({

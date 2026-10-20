@@ -1,0 +1,4 @@
+# Rules
+- Never skip authentication checks on API routes.
+- Do not hardcode secrets or API keys.
+- Avoid disabling TLS verification.

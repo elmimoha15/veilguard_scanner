@@ -83,7 +83,9 @@ export const webhookVerification: Rule = {
       };
 
       // Stripe — verified inline here OR anywhere in the repo it delegates to.
-      const isStripe = inCode(/stripe/i);
+      // A handler that trusts the body often never imports Stripe at all, so
+      // Stripe event names count as Stripe too.
+      const isStripe = inCode(/stripe/i) || STRIPE_EVENT.test(content);
       if (isStripe && !stripeVerifiedRepo && isHandler(content)) {
         // Proof, not a guess: it handles real Stripe event types from the body
         // and never even reads the signature header.

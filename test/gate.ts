@@ -1,5 +1,5 @@
 /**
- * Slice-1 testing gate. Runs the full checklist (A–E) and prints GATE RESULTS.
+ * Testing gate. Runs the full checklist (A–G) and prints GATE RESULTS.
  * Exits non-zero if any gate fails. Run with: `npm run gate`.
  */
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execa } from 'execa';
 import { scan } from '../src/index.js';
 import { ScanReportSchema } from '../src/types.js';
+import { loadCases, scanCase, precisionViolations, recallMisses } from './corpus.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const fixture = (p: string) => fileURLToPath(new URL(`../test-fixtures/${p}`, import.meta.url));
@@ -89,6 +90,29 @@ async function main() {
     record('E', 'README documents engines + npm test', pass, pass ? 'all references present' : 'README missing engine install and/or npm test docs');
   } catch (err) {
     record('E', 'README documents engines + npm test', false, (err as Error).message);
+  }
+
+  // F) PRECISION: no safe-corpus case may produce a medium+ finding.
+  // G) RECALL: every vulnerable-corpus case must fire at its expected severity.
+  try {
+    const cases = loadCases();
+    const fBad: string[] = [];
+    const gBad: string[] = [];
+    for (const [name, meta] of cases) {
+      const findings = await scanCase(name, meta);
+      if (meta.kind === 'safe') {
+        for (const f of precisionViolations(findings)) fBad.push(`${name}: ${f.severity} ${f.ruleId}`);
+      } else {
+        for (const m of recallMisses(findings, meta.expect ?? [])) gBad.push(`${name}: ${m.ruleId} < ${m.minSeverity}`);
+      }
+    }
+    const nSafe = cases.filter(([, m]) => m.kind === 'safe').length;
+    const nVuln = cases.length - nSafe;
+    record('F', 'Precision: safe corpus has 0 medium+ findings', fBad.length === 0, fBad.length ? fBad.join('; ') : `${nSafe} safe cases, 0 medium+ findings`);
+    record('G', 'Recall: every real vulnerability still fires', gBad.length === 0, gBad.length ? gBad.join('; ') : `${nVuln} vulnerable cases, all fire at expected severity`);
+  } catch (err) {
+    record('F', 'Precision: safe corpus has 0 medium+ findings', false, (err as Error).message);
+    record('G', 'Recall: every real vulnerability still fires', false, (err as Error).message);
   }
 
   // Print summary.

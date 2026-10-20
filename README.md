@@ -57,7 +57,9 @@ Adding a rule is a small, isolated change: drop a module in `src/rules/<category
 
 ## Grading
 
-Start at 100. Subtract critical −35, high −15, medium −6, low −2 (floored at 0). `A ≥ 90`, `B 75–89`, `C 60–74`, `D 40–59`, `F < 40`. **Any unresolved critical caps the grade at D.**
+Start at 100. Subtract critical −35, high −15, medium −6, low −2, each multiplied by confidence (high ×1, medium ×0.5, low ×0.15), floored at 0. `A ≥ 90`, `B 75–89`, `C 60–74`, `D 40–59`, `F < 40`. **Any critical caps the grade at D.**
+
+Severity honesty: a low-confidence finding is always reported as `low` ("Possible: verify", with `potentialSeverity` and a `verifyHint`), and `critical` requires high confidence. A variable name or prose is never evidence; see [docs/NEW_RULE_CHECKLIST.md](docs/NEW_RULE_CHECKLIST.md) and the precision/recall corpus in `test-fixtures/corpus/` (gates F and G in `npm run gate`).
 
 ## Tests
 

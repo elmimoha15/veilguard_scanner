@@ -1,0 +1,1 @@
+export const sa = { private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7k3Lq9Zx2Vt8RmPw\nYh4Nc6Jd1Fs0Ga5Hb3Kc7Le9Mf2Ng4Oh6Pi8Qj1Rk3Sl5Tm7Un9Vo0Wp2Xq4Yr6Zs\n-----END PRIVATE KEY-----\n' };

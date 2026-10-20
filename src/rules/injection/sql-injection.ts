@@ -52,7 +52,14 @@ export const sqlInjection: Rule = {
           return;
         }
 
-        if (QUERY_METHOD.test(name) && !REGEX_RECEIVER.test(name) && firstArg?.type !== 'RegExpLiteral' && firstArg && isTaintedTemplateOrConcat(firstArg)) {
+        // `.exec` is SQL only on a database object; bare exec() is child_process
+        // (INJECTION_COMMAND) and `re.exec()` is a regex.
+        const isExec = /(^|\.)exec$/.test(name);
+        const receiver = name.replace(/\.exec$/, '').split('.').pop() ?? '';
+        const regexReceiver = REGEX_RECEIVER.test(name) || /(^|_)(re|regex|regexp|pattern)$/i.test(receiver) ||
+          new RegExp(`\\b(const|let|var)\\s+${receiver.replace(/[^\w$]/g, '')}\\s*=\\s*(\\/|new\\s+RegExp)`).test(ast.content);
+        const execIsDb = isExec && name.includes('.') && !regexReceiver && !/child_process|['"]node:child_process['"]/.test(ast.content);
+        if (QUERY_METHOD.test(name) && (!isExec || execIsDb) && firstArg?.type !== 'RegExpLiteral' && firstArg && isTaintedTemplateOrConcat(firstArg)) {
           // The unsafe pattern itself is the evidence: a non-constant value glued
           // into SQL (constants like ${TABLE} were already excluded above).
           out.push(mkFinding(path, line, `${name}(…)`, 'critical',

@@ -1,0 +1,513 @@
+{
+  "safe/secret-names-in-prose": {
+    "kind": "safe",
+    "why": "Secret-looking variable NAMES in UI copy are teaching text, not leaks."
+  },
+  "safe/markdown-docs": {
+    "kind": "safe",
+    "why": "Docs and READMEs are examples."
+  },
+  "safe/placeholder-credentials": {
+    "kind": "safe",
+    "why": "Placeholder values (xxx, EXAMPLE, localhost defaults, YOUR_KEY) are not credentials."
+  },
+  "safe/public-by-design-keys": {
+    "kind": "safe",
+    "why": "Stripe pk_, Supabase anon/publishable, Firebase AIza, PostHog and Sentry DSNs are public by design."
+  },
+  "safe/json-ld-script": {
+    "kind": "safe",
+    "why": "JSON-LD structured data is not user HTML."
+  },
+  "safe/demo-showcase-component": {
+    "kind": "safe",
+    "why": "Marketing demo components render fake findings on purpose."
+  },
+  "safe/env-schema-keys": {
+    "kind": "safe",
+    "why": "Env-schema keys and error strings name variables without values."
+  },
+  "safe/style-css-injection": {
+    "kind": "safe",
+    "why": "Static CSS injected into a <style> tag is not XSS."
+  },
+  "safe/ssrf-fixed-host": {
+    "kind": "safe",
+    "why": "A fixed host with a user value only in the path is not SSRF (at most a low verify)."
+  },
+  "safe/ssrf-blocklist": {
+    "kind": "safe",
+    "why": "A metadata address inside a blocklist is the SSRF defence."
+  },
+  "safe/sql-constants-and-params": {
+    "kind": "safe",
+    "why": "Constant identifiers and positional parameters are not injection."
+  },
+  "safe/ui-copy-not-sql": {
+    "kind": "safe",
+    "why": "UI sentences that start with SELECT/DELETE words are not SQL."
+  },
+  "safe/regex-exec": {
+    "kind": "safe",
+    "why": "RegExp.exec is pattern matching, not SQL/command execution."
+  },
+  "safe/webhook-construct-event-async": {
+    "kind": "safe",
+    "why": "constructEventAsync with a differently-named client is valid verification; upserts are idempotent."
+  },
+  "safe/webhook-svix": {
+    "kind": "safe",
+    "why": "Svix verification is recognised."
+  },
+  "safe/chat-role-not-privilege": {
+    "kind": "safe",
+    "why": "An LLM chat message role is not a user privilege."
+  },
+  "safe/rls-public-catalog": {
+    "kind": "safe",
+    "why": "Public read of a product/price catalog is the intended design."
+  },
+  "safe/cors-split-routes": {
+    "kind": "safe",
+    "why": "A public \"*\" route and a separate credentialed allowlist are fine."
+  },
+  "safe/negated-ai-rules": {
+    "kind": "safe",
+    "why": "Negated instructions are the safe rule."
+  },
+  "safe/mapbox-token-env": {
+    "kind": "safe",
+    "why": "Mapbox public tokens are meant for the browser."
+  },
+  "safe/env-templates": {
+    "kind": "safe",
+    "why": "Template env files are meant to be committed."
+  },
+  "safe/pem-parser-code": {
+    "kind": "safe",
+    "why": "A PEM header with no key body is parsing code."
+  },
+  "safe/patched-next-lockfile": {
+    "kind": "safe",
+    "why": "The lockfile resolves a patched Next.js."
+  },
+  "safe/middleware-enforced-auth": {
+    "kind": "safe",
+    "why": "Auth enforced in middleware protects the routes it matches."
+  },
+  "safe/content-learn-article": {
+    "kind": "safe",
+    "why": "Code samples inside article content are not running code."
+  },
+  "safe/tests-and-mocks": {
+    "kind": "safe",
+    "why": "Tests, fixtures and mocks are not shipped."
+  },
+  "safe/url-prose-bundle": {
+    "kind": "safe",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "bundle.js"
+      ]
+    },
+    "why": "veilguard.dev regression: secret names in article/demo text inside the bundle."
+  },
+  "safe/url-minified-env-names": {
+    "kind": "safe",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "chunk.js"
+      ]
+    },
+    "why": "Un-inlined env reads and error strings in a minified bundle carry no value."
+  },
+  "safe/url-public-config": {
+    "kind": "safe",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "app.js"
+      ],
+      "responses": {}
+    },
+    "why": "Public config in a bundle; RLS probe returns no rows."
+  },
+  "vulnerable/stripe-live-key": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_STRIPE_SECRET_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/stripe-webhook-secret": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_STRIPE_WEBHOOK_SECRET",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/supabase-secret-key": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_SUPABASE_SERVICE_ROLE",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/service-role-jwt": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_SUPABASE_SERVICE_ROLE_JWT",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/aws-access-key": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_AWS_ACCESS_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/private-key": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_PRIVATE_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/next-public-secret-env": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "PLATFORM_PUBLIC_SECRET_VAR",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      },
+      {
+        "ruleId": "SECRETS_STRIPE_SECRET_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/next-public-secret-bundle": {
+    "kind": "vulnerable",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "chunk.js"
+      ]
+    },
+    "expect": [
+      {
+        "ruleId": "PLATFORM_PUBLIC_SECRET_VAR",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/secret-in-bundle": {
+    "kind": "vulnerable",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "chunk.js"
+      ]
+    },
+    "expect": [
+      {
+        "ruleId": "SECRETS_STRIPE_SECRET_KEY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/rls-disabled": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_DISABLED",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/rls-write-true": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/rls-profiles-public-read": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_RLS_PERMISSIVE_POLICY",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/firebase-open-rules": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "DATABASE_FIREBASE_RULES_OPEN",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/webhook-unverified": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "API_WEBHOOK_UNVERIFIED",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/webhook-no-idempotency": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "API_WEBHOOK_NO_IDEMPOTENCY",
+        "minSeverity": "medium",
+        "minConfidence": "medium"
+      }
+    ]
+  },
+  "vulnerable/xss-search-params": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "INJECTION_XSS",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/sql-from-request": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "INJECTION_SQL",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/command-injection": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "INJECTION_COMMAND",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/ssrf-user-host": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "INJECTION_SSRF",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/mass-assignment": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "API_MASS_ASSIGNMENT",
+        "minSeverity": "high",
+        "minConfidence": "medium"
+      }
+    ]
+  },
+  "vulnerable/cors-wildcard-credentials": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "WEB_CONFIG_CORS_WILDCARD_CREDENTIALS",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/exposed-env-over-http": {
+    "kind": "vulnerable",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "html": "index.html",
+      "bundles": [],
+      "responses": {
+        "/.env": "STRIPE_SECRET_KEY=sk_live_51QabcdEFGH1234567890ijklMNOPqrstUVWXyz\nDATABASE_URL=postgres://app:Xk9fJ2Lm@db.prod.internal:5432/app\n"
+      }
+    },
+    "expect": [
+      {
+        "ruleId": "WEB_CONFIG_EXPOSED_FILE",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/live-missing-headers": {
+    "kind": "vulnerable",
+    "url": {
+      "headers": {},
+      "html": "index.html",
+      "bundles": []
+    },
+    "expect": [
+      {
+        "ruleId": "WEB_CONFIG_MISSING_CONTENT_SECURITY_POLICY",
+        "minSeverity": "medium",
+        "minConfidence": "high"
+      },
+      {
+        "ruleId": "WEB_CONFIG_MISSING_STRICT_TRANSPORT_SECURITY",
+        "minSeverity": "medium",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/rls-open-live": {
+    "kind": "vulnerable",
+    "url": {
+      "headers": {
+        "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+        "strict-transport-security": "max-age=63072000",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "permissions-policy": "camera=()"
+      },
+      "bundles": [
+        "app.js"
+      ],
+      "responses": {
+        "/rest/v1/profiles?select=*&limit=1": "[{\"id\": \"1\", \"email\": \"a@b.c\"}]"
+      }
+    },
+    "expect": [
+      {
+        "ruleId": "DATABASE_SUPABASE_RLS_OPEN_LIVE",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/middleware-cve-lockfile": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "AUTH_NEXTJS_MIDDLEWARE_BYPASS",
+        "minSeverity": "critical",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/managed-pg-tls-off": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "AI_INSECURE_DEFAULTS",
+        "minSeverity": "medium",
+        "minConfidence": "medium"
+      }
+    ]
+  },
+  "vulnerable/tls-off-agent": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "AI_INSECURE_DEFAULTS",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  },
+  "vulnerable/ai-rules-skip-auth": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "AI_RISKY_RULES_FILE",
+        "minSeverity": "high",
+        "minConfidence": "medium"
+      }
+    ]
+  },
+  "vulnerable/committed-env-file": {
+    "kind": "vulnerable",
+    "expect": [
+      {
+        "ruleId": "SECRETS_COMMITTED_ENV",
+        "minSeverity": "high",
+        "minConfidence": "high"
+      }
+    ]
+  }
+}

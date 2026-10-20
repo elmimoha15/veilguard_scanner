@@ -28,6 +28,9 @@ export const committedEnv: Rule = {
       const hasSecret = [...content.matchAll(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.+)$/gm)].some(([, k, raw]) => {
         const val = raw!.trim().replace(/\s+#.*$/, '').replace(/^["']|["']$/g, '');
         if (!val || isPlaceholder(val)) return false;
+        // NEXT_PUBLIC_/VITE_… values ship to the browser by design; a secret-named
+        // one is PLATFORM_PUBLIC_SECRET_VAR's job.
+        if (/^(NEXT_PUBLIC_|VITE_|PUBLIC_|REACT_APP_)/.test(k!)) return false;
         return looksLikeSecretValue(val) || (SENSITIVE_NAME.test(k!) && !/^(NEXT_PUBLIC_|VITE_|PUBLIC_|REACT_APP_)/.test(k!) && val.length >= 8);
       });
       if (!hasSecret) continue;

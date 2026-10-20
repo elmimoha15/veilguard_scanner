@@ -62,10 +62,17 @@ const CONFIG_EXT = /\.(json|ya?ml|toml|ini|env|conf)$/i;
 const CONFIG_FILE = /(^|\/)[^/]*\.config\.[cm]?[jt]sx?$/i;
 const SOURCE_EXT_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
 
+// Files that RUN: API routes, route handlers, server actions, and framework
+// page/layout files. A folder named `posts/` or `blog/` above them doesn't make
+// them content (app/api/posts/route.ts is a real endpoint).
+const RUNTIME_ROUTE =
+  /(^|\/)(pages|app)\/api\/|(^|\/)route\.[cm]?[jt]sx?$|(^|\/)(page|layout|template|loading|error|actions?|middleware)\.[cm]?[jt]sx?$|(^|\/)(server|api|actions)\//;
+
 /** Classify a repo-relative file path. Precedence chosen so the safest bucket wins. */
 export function classifyFile(path?: string): FileClass {
   if (!path) return 'unknown';
   const p = path.replace(/\\/g, '/');
+  if (RUNTIME_ROUTE.test(p) && !TEST.test(p) && !EXAMPLE.test(p)) return SOURCE_EXT_RE.test(p) ? 'source' : 'unknown';
   if (EXAMPLE.test(p) || DEMO_COMPONENT.test(p)) return 'example';
   if (TEST.test(p)) return 'test';
   if (DOCS_EXT.test(p) || DOCS_DIR.test(p) || DOCS_FILE.test(p)) return 'docs';
@@ -131,4 +138,17 @@ export function contextualize(f: Finding): Finding {
   }
 
   return f;
+}
+
+/**
+ * Code-pattern findings in files that never run in production (docs, content
+ * and articles, examples and demo components, tests and fixtures, build output)
+ * are samples, not vulnerabilities, so they are not reported at all. Secrets
+ * are the exception: a real key pasted into an article is still a real key, so
+ * those stay (downgraded to a low-confidence "verify" by contextualize).
+ */
+export function suppressedByContext(f: Finding): boolean {
+  if (f.category === 'secrets') return false;
+  const cls = classifyFile(f.location?.file);
+  return isNonShipping(cls) || cls === 'content';
 }

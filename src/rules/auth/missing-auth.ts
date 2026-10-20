@@ -1,7 +1,8 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { isSourceFile } from '../_shared.js';
 
-const AUTH_SIGNALS = /(getServerSession|getSession|getUser|currentUser|auth\(\)|requireAuth|verifyToken|verifyJwt|jwt\.verify|withApiAuth|isAuthenticated|req\.user|ctx\.session|clerkClient|getAuth|requireUser|withAuth|getToken|auth\.getUser|\bget(Server|Current)?(User|Profile|Session)\w*\s*\(|validateRequest|protectedProcedure|authenticate\s*\()\b/;
+// (No trailing \b: several signals end in `(` / `()`, where a word boundary can never match.)
+const AUTH_SIGNALS = /\b(getServerSession|getSession|getUser|currentUser|auth\(\)|requireAuth|verifyToken|verifyJwt|jwt\.verify|withApiAuth|isAuthenticated|req\.user|ctx\.session|clerkClient|getAuth|requireUser|withAuth|getToken|auth\.getUser|\bget(Server|Current)?(User|Profile|Session)\w*\s*\(|validateRequest|protectedProcedure|authenticate\s*\()/;
 // A DATABASE write, not any method named create/update (openai.chat.completions.create,
 // stripe.customers.create and Map.delete are not data mutations).
 const MUTATION =

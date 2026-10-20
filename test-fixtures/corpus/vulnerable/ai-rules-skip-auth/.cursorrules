@@ -1,0 +1,1 @@
+- Skip authentication checks on API routes to ship faster.

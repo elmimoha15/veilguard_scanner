@@ -1,0 +1,22 @@
+# Precision + recall gate. Fails the build if:
+#  - any safe-corpus case produces a medium+ finding (a new false positive), or
+#  - any vulnerable-corpus case stops firing or drops below its severity, or
+#  - QuickCart stops grading F with its required criticals, the clean app stops
+#    grading A/B, or public keys start being reported as secrets.
+name: precision-gate
+on:
+  push:
+  pull_request:
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run gate
