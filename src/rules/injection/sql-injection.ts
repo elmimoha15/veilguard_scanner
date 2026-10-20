@@ -10,7 +10,7 @@ const QUERY_METHOD = /(^|\.)(query|execute|raw|exec)$/;
 // Anchoring on the statement shape (SELECT…FROM / INSERT INTO / UPDATE…SET /
 // DELETE FROM / DROP TABLE) avoids matching prose that merely contains a word
 // like "from"/"where"/"update" (e.g. 'with certificates from ' + issuer).
-const SQL_CONCAT = /["'`]\s*(?:SELECT\b[^"'`\n]*?\bFROM\s+[A-Za-z_"\[][^"'`\n]*|INSERT\s+INTO\s+[A-Za-z_"\[][^"'`\n]*|UPDATE\s+[A-Za-z_"\[][\w".]*\s+SET\s+\w+\s*=[^"'`\n]*|DELETE\s+FROM\s+[A-Za-z_"\[][^"'`\n]*|DROP\s+TABLE\b[^"'`\n]*)["'`]\s*\+\s*[A-Za-z_$.]/gi;
+const SQL_CONCAT = /["'`]\s*(?:SELECT\b[^"'`\n]*?\bFROM\s+[A-Za-z_"[][^"'`\n]*|INSERT\s+INTO\s+[A-Za-z_"[][^"'`\n]*|UPDATE\s+[A-Za-z_"[][\w".]*\s+SET\s+\w+\s*=[^"'`\n]*|DELETE\s+FROM\s+[A-Za-z_"[][^"'`\n]*|DROP\s+TABLE\b[^"'`\n]*)["'`]\s*\+\s*[A-Za-z_$.]/gi;
 /** A real query, not UI copy: SQL operators/clauses beyond the opening keyword. */
 const SQL_SHAPE = /\bWHERE\b|\bVALUES\b|=|\*|\bJOIN\b|\bLIMIT\b|\bORDER\s+BY\b|\bIN\s*\(|\bSET\b|\bDROP\s+TABLE\b/i;
 /** `.exec` on a regex is pattern matching, not SQL. */
