@@ -24,8 +24,15 @@ export type FileClass =
 
 // Example / sample / demo / story files, and `*.example`/`.env.example` — never
 // production code. Checked FIRST so `.env.example` is an example, not a credential.
+// Also demo/showcase/mockup UI: marketing components that render FAKE findings,
+// keys or code samples on purpose (e.g. a landing-page product demo), and
+// screenshot/mockup folders. `.env.local` is NOT an example: if it's committed,
+// its values are real.
 const EXAMPLE =
-  /(^|\/)(examples?|demos?|samples?|\.storybook)(\/|$)|\.(example|sample|template)(\.|$)|\.stories\.[cm]?[jt]sx?$|(^|\/)\.env\.(example|sample|template|local|dist)$/i;
+  /(^|\/)(examples?|demos?|samples?|\.storybook|mockups?|screenshots?|shots)(\/|$)|\.(example|sample|template)(\.|$)|\.stories\.[cm]?[jt]sx?$|(^|\/)\.env\.(example|sample|template|dist)$/i;
+// React components named like a demo (ProductShowcase.tsx, InvoiceMockup.tsx, PricingDemo.tsx).
+// Case-sensitive PascalCase on purpose: real logic like `demoMode.ts` keeps full severity.
+const DEMO_COMPONENT = /(^|\/)(?=[A-Z])[A-Za-z0-9]*(Showcase|Demo|Mockup|Mock)[A-Za-z0-9]*\.[cm]?[jt]sx$/;
 
 // Test / fixture / mock trees (most .test/.spec are already glob-ignored upstream).
 const TEST =
@@ -59,7 +66,7 @@ const SOURCE_EXT_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
 export function classifyFile(path?: string): FileClass {
   if (!path) return 'unknown';
   const p = path.replace(/\\/g, '/');
-  if (EXAMPLE.test(p)) return 'example';
+  if (EXAMPLE.test(p) || DEMO_COMPONENT.test(p)) return 'example';
   if (TEST.test(p)) return 'test';
   if (DOCS_EXT.test(p) || DOCS_DIR.test(p) || DOCS_FILE.test(p)) return 'docs';
   if (CREDENTIAL.test(p)) return 'credential';
@@ -91,7 +98,7 @@ const NOTE: Record<'docs' | 'example' | 'test' | 'content' | 'build', string> = 
 // in an article/marketing copy (e.g. a "don't do this" NEXT_PUBLIC_ example).
 // Secrets are intentionally NOT here: a real leaked key in a content .ts is still a
 // real leak, so secrets are left to the value-based classifier (secret-matrix).
-const CONTENT_DOWNGRADE_CATEGORIES = new Set(['injection', 'api_webhooks', 'business_logic', 'platform']);
+const CONTENT_DOWNGRADE_CATEGORIES = new Set(['injection', 'api_webhooks', 'business_logic', 'platform', 'auth', 'ai_specific', 'web_config', 'database']);
 
 /**
  * Downgrade a finding based on where it was found. Returns the finding unchanged

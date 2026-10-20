@@ -5,6 +5,7 @@ import { ScanReportSchema } from '../types.js';
 import { rules } from '../rules/index.js';
 import { suppress, type SuppressibleFinding } from './suppress.js';
 import { contextualize } from './file-context.js';
+import { calibrate } from './calibrate.js';
 import { grade } from './grade.js';
 import { debug } from './helpers.js';
 import {
@@ -37,6 +38,10 @@ function dedupeKey(f: Finding): string {
 function canonicalIdentity(f: Finding): string | null {
   if (f.category === 'secrets' && f.location?.file) {
     return `secret|${f.location.file}|${f.location.line ?? ''}`;
+  }
+  // The same sink reported by a native rule and semgrep is ONE issue.
+  if (f.category === 'injection' && f.location?.file && f.location.line) {
+    return `injection|${f.location.file}|${f.location.line}`;
   }
   return null;
 }
@@ -142,7 +147,9 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     for (const f0 of kept) {
       // Downgrade findings by file context (docs/content/example/test) BEFORE
       // streaming + collecting, so the persisted finding and the grade agree.
-      const f = contextualize(f0);
+      // Then enforce severity honesty (low confidence never shows as medium+,
+      // critical needs high confidence).
+      const f = calibrate(contextualize(f0));
       // Hold dependency findings for cross-source reconciliation (flushDeps).
       if (f.category === 'dependencies') {
         depBuffer.push(f);

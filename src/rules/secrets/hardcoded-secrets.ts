@@ -1,7 +1,10 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import type { SuppressibleFinding } from '../../engine/suppress.js';
 import { classifySecret } from '../../engine/secret-matrix.js';
-import { safeRegexScan, redact } from '../../engine/helpers.js';
+import { safeRegexScan } from '../../engine/helpers.js';
+import { isPlaceholder, hasPemBody, redactSecret } from '../../engine/evidence.js';
+import { regionAt } from '../../engine/ast.js';
+import type { BabelFile } from '../../types.js';
 import { CODE_AND_CONFIG_EXT } from '../_shared.js';
 
 /** Raw token patterns that are dangerous the moment they appear in text. */
@@ -88,21 +91,21 @@ function looksRedacted(text: string, hit: { match: string; index: number }): boo
   return false;
 }
 
-function mk(id: string, opts: { title: string; why: string; cwe: string; file?: string; line?: number; url?: string; raw: string; source: 'blackbox' | 'whitebox' }): SuppressibleFinding {
+function mk(id: string, opts: { title: string; why: string; cwe: string; file?: string; line?: number; url?: string; raw: string; source: 'blackbox' | 'whitebox'; severity?: Finding['severity']; confidence?: Finding['confidence'] }): SuppressibleFinding {
   const credFile = opts.source === 'whitebox' && isCredentialFile(opts.file);
   return {
     ruleId: id,
     category: 'secrets',
-    severity: 'critical',
+    severity: opts.severity ?? 'critical',
     cwe: opts.cwe,
     owasp: 'A05:2021',
     title: opts.title,
     whyItMatters: opts.why,
-    evidence: redact(opts.raw),
+    evidence: redactSecret(opts.raw),
     location: opts.source === 'whitebox' ? { file: opts.file, line: opts.line } : { url: opts.url },
     fix: credFile ? CRED_FILE_FIX : 'Remove the secret from source, rotate it at the provider, and load it from a server-only env var.',
     fixPrompt: credFile ? CRED_FILE_FIX_PROMPT : FIX_PROMPT,
-    confidence: 'high',
+    confidence: opts.confidence ?? 'high',
     mode: opts.source,
     source: 'native',
     _raw: opts.raw,
@@ -113,14 +116,29 @@ function scanText(
   text: string,
   loc: { file?: string; url?: string },
   mode: 'blackbox' | 'whitebox',
+  ast: BabelFile | null = null,
 ): SuppressibleFinding[] {
   const out: SuppressibleFinding[] = [];
+  const region = regionAt(ast);
 
-  // 1. Known-dangerous raw tokens.
+  // 1. Known-dangerous raw tokens. Evidence = the value itself, so placeholder
+  //    values (sk_live_xxx…, AKIAIOSFODNN7EXAMPLE, postgres:postgres@localhost)
+  //    and a PEM header with no key body are not findings.
   for (const t of DANGEROUS_TOKENS) {
     for (const hit of safeRegexScan(text, t.re)) {
       if (looksRedacted(text, hit)) continue;
-      out.push(mk(t.id, { title: t.title, why: t.why, cwe: t.cwe, file: loc.file, url: loc.url, line: hit.line, raw: hit.match, source: mode }));
+      if (t.id === 'SECRETS_PRIVATE_KEY' ? !hasPemBody(text, hit.index) : isPlaceholder(hit.match)) continue;
+      // Stripe TEST keys can't move real money: high, not critical.
+      const testKey = t.id === 'SECRETS_STRIPE_SECRET_KEY' && /_test_/.test(hit.match);
+      // A key inside a code comment is still a leak, but less certain to be live.
+      const inComment = region(hit.index) === 'comment';
+      out.push(mk(t.id, {
+        title: testKey ? 'Your Stripe test-mode secret key is exposed' : t.title,
+        why: testKey ? 'A test key can read and change your Stripe test data, and it often sits next to the live key. Treat it as a secret.' : t.why,
+        cwe: t.cwe, file: loc.file, url: loc.url, line: hit.line, raw: hit.match, source: mode,
+        severity: testKey ? 'high' : 'critical',
+        confidence: inComment ? 'medium' : 'high',
+      }));
     }
   }
 
@@ -161,7 +179,8 @@ export const hardcodedSecrets: Rule = {
         }
         const content = ctx.repo.readFile(path);
         if (content === null) continue;
-        out.push(...scanText(content, { file: path }, 'whitebox'));
+        const ast = /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(path) ? ctx.repo.astFor(path) : null;
+        out.push(...scanText(content, { file: path }, 'whitebox', ast));
       }
     }
 

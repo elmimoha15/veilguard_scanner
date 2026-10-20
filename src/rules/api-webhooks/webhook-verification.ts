@@ -1,6 +1,16 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { isSourceFile } from '../_shared.js';
 import { isHandler, isServerRoute } from './_webhook.js';
+import { regionAt } from '../../engine/ast.js';
+
+/** Any Stripe verification call, whatever the client variable is named. */
+const STRIPE_VERIFY = /\.webhooks\.(constructEvent|constructEventAsync)\s*\(|\.webhooks\.signature\.verifyHeader\s*\(|\bconstructEvent(Async)?\s*\(/;
+/** Svix (Clerk, Resend) and Octokit webhook verification. */
+const OTHER_VERIFY = /new\s+Webhook\s*\([^)]*\)[\s\S]{0,400}\.verify\s*\(|\bwh\.verify\s*\(|@octokit\/webhooks[\s\S]*\.(verify|verifyAndReceive)\s*\(|\bverifyWebhook(Signature)?\s*\(/;
+/** The handler clearly processes Stripe events (event type names). */
+const STRIPE_EVENT = /checkout\.session\.|payment_intent\.|invoice\.(paid|payment)|customer\.subscription\.|charge\.(succeeded|refunded)/;
+/** The handler reads Stripe's signature header (so it may verify via a helper). */
+const READS_SIG_HEADER = /stripe-signature/i;
 
 /**
  * White-box: a webhook handler that reads the request body but never verifies
@@ -36,7 +46,16 @@ export const webhookVerification: Rule = {
       if (!isSourceFile(path)) continue;
       const c = repo.readFile(path);
       if (!c) continue;
-      if (/stripe\.webhooks\.constructEvent\s*\(/.test(c)) stripeVerifiedRepo = true;
+      // A verification call only counts in real code: "// no constructEvent()"
+      // in a comment is the opposite of proof.
+      const codeOnly = (re: RegExp) => {
+        const region = regionAt(repo.astFor(path));
+        const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+        for (const m of c.matchAll(g)) if (region(m.index ?? 0) === 'code') return true;
+        return false;
+      };
+      if (STRIPE_VERIFY.test(c) && codeOnly(STRIPE_VERIFY)) stripeVerifiedRepo = true;
+      if (OTHER_VERIFY.test(c) && codeOnly(OTHER_VERIFY)) githubVerifiedRepo = true;
       // HMAC verification tied to webhook context (avoid matching password hashing etc.).
       if (/createHmac\s*\(/.test(c) && /timingSafeEqual\s*\(/.test(c) && /(webhook|x-hub-signature)/i.test(c)) {
         githubVerifiedRepo = true;
@@ -55,24 +74,35 @@ export const webhookVerification: Rule = {
       const mentionsWebhook = looksLikeWebhookPath || /webhook/i.test(content);
       if (!mentionsWebhook) continue;
 
+      // A provider only counts when it's mentioned in CODE, not a comment.
+      const region = regionAt(repo.astFor(path));
+      const inCode = (re: RegExp) => {
+        const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+        for (const m of content.matchAll(g)) if (region(m.index ?? 0) !== 'comment') return true;
+        return false;
+      };
+
       // Stripe — verified inline here OR anywhere in the repo it delegates to.
-      const isStripe = /stripe/i.test(content);
+      const isStripe = inCode(/stripe/i);
       if (isStripe && !stripeVerifiedRepo && isHandler(content)) {
-        out.push(finding(path, 'stripe'));
+        // Proof, not a guess: it handles real Stripe event types from the body
+        // and never even reads the signature header.
+        const strong = STRIPE_EVENT.test(content) && !READS_SIG_HEADER.test(content);
+        out.push(finding(path, 'stripe', strong ? 'high' : 'medium'));
         continue;
       }
 
       // GitHub / generic HMAC — same repo-level treatment.
-      const isGithub = /x-hub-signature|github/i.test(content) && /webhook/i.test(content);
+      const isGithub = inCode(/x-hub-signature|github/i) && /webhook/i.test(content);
       if (isGithub && !githubVerifiedRepo && isHandler(content)) {
-        out.push(finding(path, 'github'));
+        out.push(finding(path, 'github', 'medium'));
       }
     }
     return out;
   },
 };
 
-function finding(file: string, provider: 'stripe' | 'github'): Finding {
+function finding(file: string, provider: 'stripe' | 'github', confidence: Finding['confidence']): Finding {
   const p = provider === 'stripe' ? 'Stripe' : 'GitHub';
   return {
     ruleId: 'API_WEBHOOK_UNVERIFIED',
@@ -94,7 +124,8 @@ function finding(file: string, provider: 'stripe' | 'github'): Finding {
       provider === 'stripe'
         ? 'Add Stripe webhook signature verification: read the raw request body, call stripe.webhooks.constructEvent(rawBody, stripe-signature header, STRIPE_WEBHOOK_SECRET), and reject the request if it throws.'
         : 'Verify the GitHub webhook signature: compute createHmac("sha256", secret) over the raw body and compare with the x-hub-signature-256 header using crypto.timingSafeEqual.',
-    confidence: 'medium',
+    confidence,
+    verifyHint: 'Open the handler and check that it verifies the signature (for example stripe.webhooks.constructEvent) before trusting the event. If a helper does it, this is safe.',
     mode: 'whitebox',
     source: 'native',
   };

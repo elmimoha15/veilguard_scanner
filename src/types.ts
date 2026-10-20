@@ -57,6 +57,14 @@ export const FindingSchema = z.object({
   /** Copy-paste prompt the user can hand to their AI tool. */
   fixPrompt: z.string().optional(),
   confidence: ConfidenceSchema,
+  /**
+   * The severity this would have if confirmed. Set when a low/medium-confidence
+   * finding is calibrated down (see engine/calibrate.ts), so the UI can say
+   * "if this is real, it's high" without letting an unproven match grade as one.
+   */
+  potentialSeverity: SeveritySchema.optional(),
+  /** For low-confidence findings: a concrete step to check whether it's real. */
+  verifyHint: z.string().optional(),
   mode: ModeSchema,
   /** Where this finding came from: our own engine, or an external tool. */
   source: z.enum(['native', 'semgrep', 'gitleaks', 'osv-scanner']).default('native'),

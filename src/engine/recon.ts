@@ -1,4 +1,5 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import fg from 'fast-glob';
 import { parse as babelParse } from '@babel/parser';
@@ -147,8 +148,32 @@ const IGNORE = [
   '**/.storybook/**', '**/cypress/**', '**/e2e/**', '**/*.test.*', '**/*.spec.*', '**/*.stories.*',
 ];
 
+/**
+ * For a git checkout, the files git would actually commit: tracked files plus
+ * untracked files that aren't gitignored. A gitignored local `.env` or key file
+ * was never committed or shared, so flagging it as "committed" is a false
+ * positive. (GitHub deep scans are fresh clones, so this equals "what's in the
+ * repo"; uploads are already gitignore-filtered in the browser.) Returns null
+ * when the root isn't a git checkout or git isn't available, in which case every
+ * file is scanned as before.
+ */
+function gitVisibleFiles(root: string): Set<string> | null {
+  if (!existsSync(join(root, '.git'))) return null;
+  try {
+    const out = execFileSync('git', ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 20_000,
+    });
+    return new Set(out.split('\0').filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
 function buildRepo(root: string): RepoArtifacts {
-  const files = fg.sync(['**/*'], {
+  const globbed = fg.sync(['**/*'], {
     cwd: root,
     dot: true,
     ignore: IGNORE,
@@ -156,6 +181,8 @@ function buildRepo(root: string): RepoArtifacts {
     followSymbolicLinks: false,
     suppressErrors: true,
   });
+  const visible = gitVisibleFiles(root);
+  const files = visible ? globbed.filter((f) => visible.has(f)) : globbed;
 
   const fileCache = new Map<string, string | null>();
   const readFile = (path: string): string | null => {
