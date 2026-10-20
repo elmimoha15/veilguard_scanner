@@ -1,5 +1,6 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { safeRegexScan } from '../../engine/helpers.js';
+import { regionAt } from '../../engine/ast.js';
 import { isSourceFile } from '../_shared.js';
 
 // dangerouslySetInnerHTML={{ __html: <expr> }} where expr isn't an obvious
@@ -34,8 +35,10 @@ export const xss: Rule = {
       if (!isSourceFile(path)) continue;
       const content = repo.readFile(path);
       if (!content) continue;
+      const region = regionAt(repo.astFor(path));
 
       for (const m of safeRegexScan(content, DANGEROUS_HTML)) {
+        if (region(m.index) !== 'code') continue; // described in a comment/string, not rendered
         const expr = (m.groups[0] ?? '').trim();
         if (/DOMPurify|sanitize|sanitizeHtml|purify/i.test(expr)) continue; // already sanitized → ok
         if (isStaticHtmlExpr(expr)) continue; // JSON.stringify / literal / static → not user data, safe

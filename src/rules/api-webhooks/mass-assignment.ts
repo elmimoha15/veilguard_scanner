@@ -1,5 +1,6 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { safeRegexScan } from '../../engine/helpers.js';
+import { regionAt } from '../../engine/ast.js';
 import { isSourceFile } from '../_shared.js';
 
 // Privileged fields written straight from the request body.
@@ -24,16 +25,18 @@ export const massAssignment: Rule = {
       if (!isSourceFile(path)) continue;
       const content = repo.readFile(path);
       if (!content) continue;
+      const region = regionAt(repo.astFor(path));
+      const inCode = (m: { index: number }) => region(m.index) === 'code';
 
       // Collect all privileged fields set from the body, report once per file.
-      const tamperHits = safeRegexScan(content, TAMPER);
+      const tamperHits = safeRegexScan(content, TAMPER).filter(inCode);
       if (tamperHits.length > 0) {
         const fields = [...new Set(tamperHits.map((h) => h.groups[0]).filter(Boolean))];
         out.push(mk(path, tamperHits[0]!.line, `Privileged fields set from the request body: ${fields.join(', ')}`, 'high'));
       }
 
       // Spread into a db write is the more dangerous shape.
-      for (const m of safeRegexScan(content, SPREAD_BODY)) {
+      for (const m of safeRegexScan(content, SPREAD_BODY).filter(inCode)) {
         const around = content.slice(Math.max(0, m.index - 60), m.index + 40);
         if (/update|insert|create|set|save/i.test(around)) {
           out.push(mk(path, m.line, 'The entire request body is written to the database (…req.body)', 'high'));

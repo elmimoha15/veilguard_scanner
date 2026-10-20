@@ -1,5 +1,6 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
 import { safeRegexScan } from '../../engine/helpers.js';
+import { regionAt } from '../../engine/ast.js';
 import { isSourceFile } from '../_shared.js';
 
 const PATTERNS: { re: RegExp; title: string; why: string }[] = [
@@ -29,8 +30,10 @@ export const insecureDefaults: Rule = {
       if (!isSourceFile(path) && !/\.env/.test(path)) continue;
       const content = repo.readFile(path);
       if (!content) continue;
+      const region = regionAt(isSourceFile(path) ? repo.astFor(path) : null);
       for (const p of PATTERNS) {
         for (const m of safeRegexScan(content, p.re)) {
+          if (region(m.index) !== 'code') continue; // mentioned in a comment/message, not set
           out.push({
             ruleId: 'AI_INSECURE_DEFAULTS',
             category: 'ai_specific',

@@ -1,5 +1,5 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
-import { forEachCall, calleeName, isTaintedTemplateOrConcat } from '../../engine/ast.js';
+import { forEachCall, calleeName, isTaintedTemplateOrConcat, regionAt } from '../../engine/ast.js';
 import { safeRegexScan } from '../../engine/helpers.js';
 import { isSourceFile } from '../_shared.js';
 
@@ -56,7 +56,9 @@ export const sqlInjection: Rule = {
       // contains "from"/"where" no longer trips it.
       const content = repo.readFile(path);
       if (content) {
+        const region = regionAt(ast);
         for (const m of safeRegexScan(content, SQL_CONCAT)) {
+          if (region(m.index) !== 'code') continue; // example in a comment/message, not a query
           out.push(mkFinding(path, m.line, `${m.match.slice(0, 44)}…`, 'critical',
             'SQL is built by gluing strings together',
             'Concatenating user input into a SQL string lets an attacker rewrite your query (SQL injection).'));

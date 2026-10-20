@@ -119,3 +119,38 @@ describe('confidence-weighted grade', () => {
     expect(computeScore([f('high', 'high')])).toBe(85);
   });
 });
+
+// ── Text-regex rules ignore comments + string prose (e.g. a detector's own docs) ──
+describe('text rules skip comments and string literals', async () => {
+  const { sqlInjection } = await import('../src/rules/injection/sql-injection.js');
+  const { insecureDefaults } = await import('../src/rules/ai-specific/insecure-defaults.js');
+  const { massAssignment } = await import('../src/rules/api-webhooks/mass-assignment.js');
+  const run = (rule: { run: (c: any) => Promise<Finding[]> }, src: string, file = 'src/x.ts') =>
+    rule.run(makeRepoContext({ [file]: src }));
+
+  it('SQL concat: comment example ignored, real concat still flagged', async () => {
+    expect(await run(sqlInjection, `// e.g. 'SELECT * FROM orders WHERE id = ' + userId\nexport {};`)).toHaveLength(0);
+    expect(await run(sqlInjection, `const q = 'SELECT * FROM orders WHERE id = ' + userId;`)).toHaveLength(1);
+  });
+
+  it('TLS: message strings ignored, real settings still flagged', async () => {
+    const prose = `const why = '\`rejectUnauthorized: false\` disables checks';\nconst m = 'Setting NODE_TLS_REJECT_UNAUTHORIZED=0 is bad';`;
+    expect(await run(insecureDefaults, prose)).toHaveLength(0);
+    const real = `https.request({ rejectUnauthorized: false });\nprocess.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';`;
+    expect(await run(insecureDefaults, real)).toHaveLength(2);
+  });
+
+  it('TLS: .env files still scanned without an AST', async () => {
+    expect(await run(insecureDefaults, 'NODE_TLS_REJECT_UNAUTHORIZED=0\n', '.env')).toHaveLength(1);
+  });
+
+  it('mass assignment: comment ignored, real spread into update still flagged', async () => {
+    expect(await run(massAssignment, `// Spreading the whole body into an update (\`...req.body\`).\nexport {};`)).toHaveLength(0);
+    expect(await run(massAssignment, `await db.user.update({ data: { ...req.body } });`)).toHaveLength(1);
+  });
+
+  it('XSS: comment ignored', async () => {
+    const f = await xss.run(makeRepoContext({ 'app/c.tsx': `// dangerouslySetInnerHTML={{ __html: <expr> }}\nexport {};` }));
+    expect(f).toHaveLength(0);
+  });
+});
