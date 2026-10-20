@@ -22,7 +22,44 @@ const METADATA_URL =
 // Call names that issue an outbound HTTP request.
 const REQUEST_CALL = /(^|\.)(fetch|request|got)$|axios|https?\.(get|request|post)$/i;
 // User-controlled sources that make a URL tainted.
-const USER_INPUT = /\b(req|request|searchParams|params|query|body|nextUrl)\b/;
+/** A user-input ROOT in an interpolated expression (not just the word in literal text). */
+const USER_INPUT = /^\s*(?:await\s+)?(?:req|request|searchParams|params|query|body|nextUrl|ctx\.(?:query|params|request))\b/;
+
+/**
+ * Where user input lands in the URL. Controlling the scheme/host is real SSRF
+ * (call any internal host); a user value only in the PATH of a fixed host is
+ * usually just an API lookup.
+ */
+function taintPosition(arg: any, content: string): 'host' | 'path' | null {
+  const text = (n: any) => (typeof n?.start === 'number' && typeof n?.end === 'number' ? content.slice(n.start, n.end) : '');
+  const userExpr = (n: any) => USER_INPUT.test(text(n));
+  // Literal text BEFORE the first user-controlled piece decides host vs path:
+  // "https://api.example.com/..." or a relative "/..." means the host is fixed.
+  const hostFixed = (prefix: string) => /^[a-z][a-z0-9+.-]*:\/\/[^/\s]*[a-z0-9-]\.[a-z]{2,}[^/\s]*\//i.test(prefix) || /^\//.test(prefix);
+  if (arg.type === 'TemplateLiteral') {
+    let prefix = '';
+    for (let i = 0; i < arg.expressions.length; i++) {
+      prefix += arg.quasis[i]?.value?.cooked ?? '';
+      if (userExpr(arg.expressions[i])) return hostFixed(prefix) ? 'path' : 'host';
+      prefix += '${}';
+    }
+    return null;
+  }
+  if (arg.type === 'BinaryExpression') {
+    const parts: any[] = [];
+    const walk = (n: any): void => {
+      if (n?.type === 'BinaryExpression' && n.operator === '+') { walk(n.left); walk(n.right); } else parts.push(n);
+    };
+    walk(arg);
+    let prefix = '';
+    for (const part of parts) {
+      if (part.type === 'StringLiteral') { prefix += part.value; continue; }
+      if (userExpr(part)) return hostFixed(prefix) ? 'path' : 'host';
+      prefix += '${}';
+    }
+  }
+  return null;
+}
 
 export const ssrf: Rule = {
   id: 'INJECTION_SSRF',
@@ -39,7 +76,12 @@ export const ssrf: Rule = {
       if (!content) continue;
 
       // 1. Cloud-metadata literal (report once per file).
-      const metaHit = safeRegexScan(content, METADATA_URL)[0];
+      // A metadata address inside a blocklist (array, includes/has check) is the
+      // DEFENCE against SSRF, not a request to it.
+      const lines = content.split('\n');
+      const metaHit = safeRegexScan(content, METADATA_URL).find(
+        (h) => !/\[|includes\(|\.has\(|block|deny|forbid|disallow|reject/i.test(lines[h.line - 1] ?? ''),
+      );
       if (metaHit) {
         out.push(mk(path, metaHit.line, `request to ${metaHit.match.slice(0, 48)}`, 'high', 'high',
           'Your code makes a request to the cloud metadata endpoint',
@@ -53,14 +95,24 @@ export const ssrf: Rule = {
         const name = calleeName(node);
         if (!REQUEST_CALL.test(name)) return;
         const arg = node.arguments?.[0];
-        if (!arg || !isTaintedTemplateOrConcat(arg)) return;
-        // Only when the tainted part references user input.
-        const src =
-          typeof arg.start === 'number' && typeof arg.end === 'number' ? content.slice(arg.start, arg.end) : '';
-        if (!USER_INPUT.test(src)) return;
-        out.push(mk(path, line, `${name}(<user-controlled url>)`, 'high', 'medium',
-          'A server request is built from untrusted input (SSRF)',
-          'Passing user-controlled data into the URL of a server-side request lets an attacker make your server call internal hosts or the cloud metadata endpoint (SSRF).'));
+        if (!arg) return;
+        // The whole URL straight from the request (fetch(req.query.url)) = host control.
+        const whole = (arg.type === 'MemberExpression' || arg.type === 'CallExpression') && USER_INPUT.test(typeof arg.start === 'number' ? content.slice(arg.start, arg.end) : '');
+        if (!whole && !isTaintedTemplateOrConcat(arg)) return;
+        const pos = whole ? 'host' : taintPosition(arg, content);
+        if (!pos) return;
+        if (pos === 'host') {
+          out.push(mk(path, line, `${name}(<user-controlled url>)`, 'high', 'high',
+            'A server request goes to a host chosen by the user (SSRF)',
+            'User input decides which host your server calls, so an attacker can make it reach internal services or the cloud metadata endpoint (SSRF).'));
+        } else {
+          out.push({
+            ...mk(path, line, `${name}(<fixed host>/<user path>)`, 'medium', 'low',
+              'A server request path includes user input',
+              'The host is fixed, but user input is placed in the request path. Usually fine; it matters only if the input can add "../", "@" or reach another endpoint.'),
+            verifyHint: 'Check that the user value is validated (for example an id or slug pattern) so it cannot change the path to another endpoint.',
+          });
+        }
       });
     }
     return out;

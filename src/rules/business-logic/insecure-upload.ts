@@ -14,6 +14,7 @@ export const insecureUpload: Rule = {
     const repo = ctx.repo;
     if (!repo) return [];
     const out: Finding[] = [];
+    const hits: { path: string; hasTypeCheck: boolean; hasSizeLimit: boolean }[] = [];
 
     for (const path of repo.files) {
       if (!isSourceFile(path)) continue;
@@ -27,18 +28,28 @@ export const insecureUpload: Rule = {
       const hasSizeLimit = /(limits\s*:|fileSize|maxSize|max_size|MAX_FILE|\.size\s*[<>])/i.test(content);
       if (hasTypeCheck && hasSizeLimit) continue;
 
+      hits.push({ path, hasTypeCheck, hasSizeLimit });
+    }
+
+    // One issue, one finding: report the pattern once with every place it appears.
+    if (hits.length) {
+      const first = hits[0]!;
+      const missing = (h: { hasTypeCheck: boolean; hasSizeLimit: boolean }) =>
+        [!h.hasTypeCheck && 'file type', !h.hasSizeLimit && 'file size'].filter(Boolean).join(' or ');
       out.push({
         ruleId: 'BUSINESS_INSECURE_UPLOAD',
         category: 'business_logic',
         severity: 'medium',
         cwe: 'CWE-434',
         owasp: 'A04:2021',
-        title: 'File uploads aren’t validated',
-        whyItMatters: `This upload handler doesn’t restrict ${!hasTypeCheck ? 'file type' : ''}${!hasTypeCheck && !hasSizeLimit ? ' or ' : ''}${!hasSizeLimit ? 'file size' : ''}, so attackers can upload malicious or oversized files.`,
-        location: { file: path },
-        fix: 'Allowlist accepted MIME types/extensions and enforce a maximum file size before storing the upload.',
+        title: hits.length > 1 ? `File uploads may not be validated (${hits.length} places)` : 'File uploads may not be validated',
+        whyItMatters: `We couldn’t find a ${missing(first)} check near this upload, so attackers may be able to upload malicious or oversized files.`,
+        evidence: hits.slice(0, 5).map((h) => h.path).join(', ') + (hits.length > 5 ? `, +${hits.length - 5} more` : ''),
+        location: { file: first.path },
+        fix: 'Allowlist accepted MIME types/extensions and enforce a maximum file size before storing the upload (server-side or in your storage bucket rules).',
         fixPrompt: 'Add validation to this file-upload handler: allowlist specific MIME types/extensions and reject anything else, and enforce a maximum file size limit before saving the file.',
         confidence: 'low',
+        verifyHint: 'Uploads can also be limited by storage bucket rules (Supabase/Firebase). If your bucket restricts type and size, this is safe.',
         mode: 'whitebox',
         source: 'native',
       });

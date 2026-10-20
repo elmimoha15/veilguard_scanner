@@ -1,4 +1,6 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
+import { looksLikeSecretValue, isPlaceholder } from '../../engine/evidence.js';
+import { SENSITIVE_NAME } from '../../engine/secret-matrix.js';
 
 /**
  * Flags a committed `.env*` file (other than `.env.example`) — especially when
@@ -17,10 +19,18 @@ export const committedEnv: Rule = {
 
     const out: Finding[] = [];
     for (const path of repo.envFiles) {
-      if (/\.env\.(example|sample|template)$/.test(path)) continue;
+      // Template env files (.env.example, .env.local.example, .env.sample…) are
+      // MEANT to be committed.
+      if (/\.(example|sample|template|dist)$/i.test(path)) continue;
       const content = repo.readFile(path) ?? '';
-      const hasValues = /^[A-Z0-9_]+=\S+/m.test(content);
-      if (!hasValues) continue;
+      // Evidence: at least one real-looking secret, or a secret-named key with a
+      // non-placeholder value. URLs, ports and feature flags alone aren't secrets.
+      const hasSecret = [...content.matchAll(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.+)$/gm)].some(([, k, raw]) => {
+        const val = raw!.trim().replace(/\s+#.*$/, '').replace(/^["']|["']$/g, '');
+        if (!val || isPlaceholder(val)) return false;
+        return looksLikeSecretValue(val) || (SENSITIVE_NAME.test(k!) && !/^(NEXT_PUBLIC_|VITE_|PUBLIC_|REACT_APP_)/.test(k!) && val.length >= 8);
+      });
+      if (!hasSecret) continue;
       out.push({
         ruleId: 'SECRETS_COMMITTED_ENV',
         category: 'secrets',

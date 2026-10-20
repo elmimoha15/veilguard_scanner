@@ -38,22 +38,40 @@ export function calleeName(node: any): string {
   return parts.join('.');
 }
 
-/** True if a node is (or contains) string concatenation with a non-literal part. */
+/**
+ * A value that can't carry user input: a literal, or a SCREAMING_CASE constant
+ * (`TABLE`, `Config.TABLE_NAME`, `LIMIT`). Interpolating these is not taint.
+ */
+export function isConstantNode(n: any): boolean {
+  if (!n) return true;
+  if (n.type === 'StringLiteral' || n.type === 'NumericLiteral' || n.type === 'BooleanLiteral') return true;
+  if (n.type === 'Identifier') return /^[A-Z][A-Z0-9_]*$/.test(n.name);
+  if (n.type === 'MemberExpression' && !n.computed && n.property?.type === 'Identifier') {
+    return /^[A-Z][A-Z0-9_]*$/.test(n.property.name) && (n.object?.type === 'Identifier' || n.object?.type === 'MemberExpression');
+  }
+  return false;
+}
+
+/** True if a node is (or contains) string concatenation with a non-constant part. */
 export function isTaintedTemplateOrConcat(node: any): boolean {
   if (!node) return false;
   if (node.type === 'TemplateLiteral') {
-    // Interpolated expressions → tainted (unless all are simple literals).
-    return node.expressions.some((e: any) => e.type !== 'StringLiteral' && e.type !== 'NumericLiteral');
+    // Interpolated expressions → tainted (unless all are literals/constants).
+    return node.expressions.some((e: any) => !isConstantNode(e));
   }
   if (node.type === 'BinaryExpression' && node.operator === '+') {
     const hasIdentifier = (n: any): boolean =>
-      n.type === 'Identifier' ||
-      n.type === 'MemberExpression' ||
-      n.type === 'CallExpression' ||
+      ((n.type === 'Identifier' || n.type === 'MemberExpression' || n.type === 'CallExpression') && !isConstantNode(n)) ||
       (n.type === 'BinaryExpression' && (hasIdentifier(n.left) || hasIdentifier(n.right)));
     return hasIdentifier(node);
   }
   return false;
+}
+
+/** True when the node's source text references request/user input directly. */
+export function referencesUserInput(node: any, content: string): boolean {
+  if (typeof node?.start !== 'number' || typeof node?.end !== 'number') return false;
+  return /\b(req|request|params|searchParams|query|body|input|args|formData|ctx\.(query|params|request))\b/.test(content.slice(node.start, node.end));
 }
 
 /** Collect all string-literal + identifier args flattened for quick checks. */

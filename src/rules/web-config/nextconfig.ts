@@ -31,13 +31,15 @@ export const nextConfig: Rule = {
       const content = repo.readFile(path);
       if (!content) continue;
       // Tolerant of header-object formatting like `key:'…', value:'*'`.
-      const wildcardOrigin =
-        /access-control-allow-origin[\s\S]{0,40}?['"`]\*['"`]/i.test(content) ||
-        /\borigin\s*:\s*['"`]\*['"`]/i.test(content);
-      const credentials =
-        /access-control-allow-credentials[\s\S]{0,40}?['"`]?true/i.test(content) ||
-        /\bcredentials\s*:\s*true/i.test(content);
-      if (wildcardOrigin && credentials) {
+      // Both must be in the SAME header block / options object, not anywhere in
+      // the file (a public `*` route and a separate credentialed route are fine).
+      const WILD = /access-control-allow-origin[\s\S]{0,40}?['"`]\*['"`]|\borigin\s*:\s*['"`]\*['"`]/gi;
+      const CRED = /access-control-allow-credentials[\s\S]{0,40}?['"`]?true|\bcredentials\s*:\s*true/i;
+      const together = [...content.matchAll(WILD)].some((m) => {
+        const i = m.index ?? 0;
+        return CRED.test(content.slice(Math.max(0, i - 250), i + 250));
+      });
+      if (together) {
         out.push({
           ruleId: 'WEB_CONFIG_CORS_WILDCARD_CREDENTIALS',
           category: 'web_config',

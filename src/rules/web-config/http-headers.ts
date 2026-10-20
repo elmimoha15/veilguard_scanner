@@ -19,8 +19,11 @@ export const httpHeaders: Rule = {
     if (!http || !http.reachable) return [];
     const out: Finding[] = [];
 
+    // CSP frame-ancestors is the modern replacement for X-Frame-Options.
+    const frameAncestors = /frame-ancestors/i.test(http.headers['content-security-policy'] ?? '');
     for (const r of REQUIRED) {
-      if (!(r.header in http.headers)) {
+      const covered = r.header === 'x-frame-options' && frameAncestors;
+      if (!(r.header in http.headers) && !covered) {
         out.push({
           ruleId: `WEB_CONFIG_MISSING_${r.header.toUpperCase().replace(/-/g, '_')}`,
           category: 'web_config',
@@ -50,8 +53,12 @@ export const httpHeaders: Rule = {
 
     // Cookies without HttpOnly/Secure/SameSite.
     for (const cookie of http.cookies) {
-      const lc = cookie.toLowerCase();
-      if (/session|auth|token|sid/.test(lc) && (!lc.includes('httponly') || !lc.includes('secure'))) {
+      // Judge by the cookie NAME (not its value or attributes), and skip CSRF
+      // tokens, which must be readable by scripts by design.
+      const name = cookie.split('=')[0]!.trim().toLowerCase();
+      const attrs = cookie.slice(cookie.indexOf(';') + 1).toLowerCase();
+      const sessionLike = /(session|sess\b|auth|token|^sid$|_sid$|^jwt$)/.test(name) && !/csrf|xsrf/.test(name);
+      if (sessionLike && (!/\bhttponly\b/.test(attrs) || !/\bsecure\b/.test(attrs))) {
         out.push({
           ruleId: 'WEB_CONFIG_WEAK_COOKIE',
           category: 'web_config',

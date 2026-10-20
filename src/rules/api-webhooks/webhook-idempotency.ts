@@ -32,7 +32,14 @@ const FINANCIAL =
 const LOG_TARGET = /\b(log|analytic|audit|metric|telemetry|event_?log)/i;
 
 /** True if the handler already guards against processing the same event twice. */
+/** Writes that APPLY an effect each time (vs. syncing state to a known value). */
+const ADDITIVE = /\.(insert|create|increment|decrement)\s*\(|\bcredits?\b[\s\S]{0,40}?[+-]=|\b(sendEmail|send|mail|charge|refund|transfer|payout)\s*\(/i;
+/** State-sync writes keyed on the provider object: replaying them changes nothing. */
+const SYNC_WRITE = /\.upsert\s*\(|\bupsert[A-Z]\w*\s*\(|\bmanage[A-Z]\w*(Status|Change)\w*\s*\(/;
+
 function hasDedupeGuard(content: string): boolean {
+  // Only upserts / status syncs and nothing additive → idempotent by construction.
+  if (SYNC_WRITE.test(content) && !ADDITIVE.test(content)) return true;
   if (/idempotenc/i.test(content)) return true;
   if (/already[_-]?processed/i.test(content)) return true;
   if (/processed[_-]?events?/i.test(content)) return true;
@@ -85,7 +92,9 @@ export const webhookIdempotency: Rule = {
       out.push({
         ruleId: 'API_WEBHOOK_NO_IDEMPOTENCY',
         category: 'api_webhooks',
-        severity: 'high',
+        // Real but bounded: it needs a retried or re-sent signed event, and the
+        // damage is a duplicated effect, not an account takeover.
+        severity: 'medium',
         cwe: 'CWE-799',
         owasp: 'A04:2021',
         title: 'Your webhook can be replayed to run twice',
@@ -96,6 +105,7 @@ export const webhookIdempotency: Rule = {
         fixPrompt:
           'Make this webhook handler idempotent: store processed Stripe event ids in a table with a unique constraint on the event id. At the start of the handler, try to insert the event.id (or look it up); if it already exists, return 200 immediately without crediting/granting again. Only apply the side effect for events not seen before.',
         confidence: 'medium',
+        verifyHint: 'Check whether a repeated event would apply its effect twice (double credit, double email). If every write is an upsert keyed on the provider id, it is already safe.',
         mode: 'whitebox',
         source: 'native',
       });

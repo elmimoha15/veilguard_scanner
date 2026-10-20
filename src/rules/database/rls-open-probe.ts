@@ -1,4 +1,5 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
+import { classifySecret } from '../../engine/secret-matrix.js';
 
 // A SMALL, fixed list of commonly-sensitive table names. This is the ONLY
 // enumeration we do — total probe requests are hard-capped at its length.
@@ -33,6 +34,10 @@ export const rlsOpenProbe: Rule = {
     const url = ctx.discovered?.supabaseUrl;
     const key = ctx.discovered?.supabaseAnonKey;
     if (!url || !key) return [];
+    // Only probe with a key that is public by design (anon JWT or sb_publishable_).
+    // With any other key, rows coming back wouldn't prove RLS is open: the key
+    // itself could bypass RLS (and a leaked service key is its own finding).
+    if (classifySecret(key).verdict !== 'public') return [];
 
     const out: Finding[] = [];
     await Promise.all(

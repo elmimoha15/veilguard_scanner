@@ -29,7 +29,15 @@ export const massAssignment: Rule = {
       const inCode = (m: { index: number }) => region(m.index) === 'code';
 
       // Collect all privileged fields set from the body, report once per file.
-      const tamperHits = safeRegexScan(content, TAMPER).filter(inCode);
+      const tamperHits = safeRegexScan(content, TAMPER).filter(inCode).filter((h) => {
+        const field = (h.groups[0] ?? '').toLowerCase();
+        const around = content.slice(Math.max(0, h.index - 160), h.index + 160);
+        // `{ role: req.body.role, content }` is an AI chat message, not a privilege.
+        if (field === 'role' && /\b(content|messages?|parts|prompt)\b/.test(around)) return false;
+        // `plan` / `tier` chosen to pick a price for checkout, not written to the user.
+        if ((field === 'plan' || field === 'tier') && /\b(price|priceId|lookup_key|checkout|line_items)\b/i.test(around)) return false;
+        return true;
+      });
       if (tamperHits.length > 0) {
         const fields = [...new Set(tamperHits.map((h) => h.groups[0]).filter(Boolean))];
         out.push(mk(path, tamperHits[0]!.line, `Privileged fields set from the request body: ${fields.join(', ')}`, 'high'));
@@ -38,7 +46,9 @@ export const massAssignment: Rule = {
       // Spread into a db write is the more dangerous shape.
       for (const m of safeRegexScan(content, SPREAD_BODY).filter(inCode)) {
         const around = content.slice(Math.max(0, m.index - 60), m.index + 40);
-        if (/update|insert|create|set|save/i.test(around)) {
+        // A write call, not the letters "set" inside `reset`/`settings`; a body
+        // validated by a schema first (zod .parse strips unknown keys) is safe.
+        if (/\.(update|insert|create|upsert|set|save)\w*\s*\(|\b(update|insert|create|upsert)\w*\s*\(/i.test(around) && !/\.(safeParse|parse)\s*\(\s*(req|request)\.body/.test(content)) {
           out.push(mk(path, m.line, 'The entire request body is written to the database (…req.body)', 'high'));
           break;
         }

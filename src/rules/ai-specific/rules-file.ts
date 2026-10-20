@@ -31,6 +31,10 @@ export const rulesFile: Rule = {
 
       for (const r of RISKY) {
         for (const m of safeRegexScan(content, r.re)) {
+          // "Never skip auth" / "Do not disable validation" is the SAFE instruction.
+          const lineStart = content.lastIndexOf('\n', m.index) + 1;
+          const before = content.slice(lineStart, m.index);
+          if (/\b(never|don['’]?t|do\s+not|must\s+not|should\s+not|shouldn['’]?t|avoid|no)\s+(\S+\s+){0,2}$/i.test(before)) continue;
           out.push({
             ruleId: 'AI_RISKY_RULES_FILE',
             category: 'ai_specific',
@@ -42,7 +46,8 @@ export const rulesFile: Rule = {
             location: { file: path, line: m.line },
             fix: `Remove the “${r.label}” instruction from ${path}. AI rules files should reinforce security, not disable it.`,
             fixPrompt: `Edit ${path} to remove any instruction that tells the assistant to skip authentication, hardcode secrets, disable TLS verification, or override the API base URL. Replace them with instructions to always enforce auth and validation.`,
-            confidence: 'medium',
+            // A base URL pointing at a real API (OpenAI, a proxy) is common and fine.
+            confidence: r.label.startsWith('base-URL') ? 'low' : 'medium',
             mode: 'whitebox',
             source: 'native',
           });

@@ -19,8 +19,28 @@ function isStaticHtmlExpr(expr: string): boolean {
 
 // Signals that the injected value is (or could be) user- / request-derived — the
 // only case that is a real XSS sink and fires at HIGH.
+// Request/URL data and user-generated fields. Deliberately NOT generic words
+// like `content`, `description`, `state` or `context`, which are usually
+// trusted CMS/app data and made every blog renderer a "high".
 const USER_DERIVED =
-  /\b(props|params|searchParams|useSearchParams|query|req|request|body|formData|location|window|document\.|input|state|useState|router|ctx|context|params\.|marked|markdownToHtml|renderMarkdown|userInput|comment|message|description|bio|content\b)/i;
+  /\b(params|searchParams|useSearchParams|query|req|request|body|formData|location|input|userInput|comment|comments|message|messages|bio|marked|markdownToHtml|renderMarkdown)\b/i;
+
+/** A bare SCREAMING_CASE identifier is a constant (e.g. `__html: SECTION_CSS`). */
+const CONSTANT_IDENT = /^[A-Z][A-Z0-9_]*$/;
+
+/** True when `name` is declared in this file as a plain string/template literal. */
+function isLocalStringConst(content: string, name: string): boolean {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) return false;
+  const decl = new RegExp(`\\bconst\\s+${name}\\s*(?::\\s*string\\s*)?=\\s*(\`[^\`]*\`|'[^'\\n]*'|"[^"\\n]*")`);
+  const m = content.match(decl);
+  return !!m && !/\$\{/.test(m[1]!);
+}
+
+/** The sink is a <style> tag or JSON-LD script: CSS/structured data, not markup from users. */
+function isStyleOrJsonLd(content: string, index: number): boolean {
+  const before = content.slice(Math.max(0, index - 120), index);
+  return /<style\b[^>]*$/.test(before) || /<script\b[^>]*application\/ld\+json[^>]*$/.test(before);
+}
 
 export const xss: Rule = {
   id: 'INJECTION_XSS',
@@ -42,6 +62,8 @@ export const xss: Rule = {
         const expr = (m.groups[0] ?? '').trim();
         if (/DOMPurify|sanitize|sanitizeHtml|purify/i.test(expr)) continue; // already sanitized → ok
         if (isStaticHtmlExpr(expr)) continue; // JSON.stringify / literal / static → not user data, safe
+        if (CONSTANT_IDENT.test(expr) || isLocalStringConst(content, expr)) continue; // a constant, not data
+        if (isStyleOrJsonLd(content, m.index) && !USER_DERIVED.test(expr)) continue; // CSS / structured data
 
         // A dynamic value that is clearly user/request-derived is a real XSS sink
         // (HIGH). Anything else non-static we can't prove is safe → a low-confidence
@@ -70,6 +92,7 @@ export const xss: Rule = {
           fixPrompt:
             `Wrap the value passed to dangerouslySetInnerHTML in DOMPurify.sanitize() — add \`import DOMPurify from 'isomorphic-dompurify'\` and change \`__html: ${short}\` to \`__html: DOMPurify.sanitize(${short})\`. If the value never needs to be HTML, render it as plain text ({value}) instead.`,
           confidence: userDerived ? 'high' : 'low',
+          ...(userDerived ? {} : { verifyHint: `Trace where ${short} comes from. If it is built only from your own code or a trusted CMS, this is safe. If any part can come from a user, sanitize it with DOMPurify.` }),
           mode: 'whitebox',
           source: 'native',
         });

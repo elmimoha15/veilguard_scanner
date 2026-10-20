@@ -9,6 +9,21 @@ const QUALIFIED = String.raw`(?:"?[a-z_][a-z0-9_]*"?\s*\.\s*)?"?([a-z_][a-z0-9_]
 const CREATE_TABLE = new RegExp(String.raw`create\s+table\s+(?:if\s+not\s+exists\s+)?${QUALIFIED}`, 'gi');
 const ENABLE_RLS = new RegExp(String.raw`alter\s+table\s+(?:only\s+)?${QUALIFIED}\s+enable\s+row\s+level\s+security`, 'gi');
 const PERMISSIVE = /using\s*\(\s*(true|1\s*=\s*1|auth\.uid\(\)\s+is\s+not\s+null)\s*\)/gi;
+/** Tables that are public by design in almost every app (storefront catalogs, CMS). */
+const PUBLIC_CATALOG = /^(products?|prices?|plans?|pricing|tiers?|categories|category|tags?|features?|faqs?|countries|currencies|locales?|public_[a-z0-9_]+|catalog[a-z0-9_]*|menu[a-z0-9_]*|posts?|articles?|blog[a-z0-9_]*|changelog[a-z0-9_]*)$/i;
+/** Tables that almost always hold private, per-user data. */
+const SENSITIVE_TABLE = /(profile|user|account|customer|order|payment|invoice|subscription|message|chat|conversation|note|document|file|secret|token|key|address|billing|wallet|transaction|session|private)/i;
+
+/** The `create policy … on <table> [for <cmd>]` statement a USING clause belongs to. */
+function policyFor(sql: string, index: number): { name: string; table: string; cmd: string } {
+  const start = sql.toLowerCase().lastIndexOf('create policy', index);
+  const stmt = start >= 0 ? sql.slice(start, index) : '';
+  const name = stmt.match(/create\s+policy\s+"([^"]*)"/i)?.[1] ?? '';
+  const table = stmt.match(new RegExp(String.raw`\son\s+${QUALIFIED}`, 'i'))?.[1]?.toLowerCase() ?? '';
+  const cmd = stmt.match(/\sfor\s+(select|insert|update|delete|all)\b/i)?.[1]?.toLowerCase() ?? 'all';
+  return { name, table, cmd };
+}
+
 const SECURITY_DEFINER_VIEW = new RegExp(String.raw`create\s+(?:or\s+replace\s+)?view\s+${QUALIFIED}`, 'gi');
 
 /**
@@ -61,23 +76,53 @@ export const supabaseRls: Rule = {
         if (name) created.push({ table: name.toLowerCase(), file, line: m.line });
       }
 
-      // Over-permissive policies.
+      // Over-permissive policies, graded by what they allow and on which table.
       for (const m of safeRegexScan(sql, PERMISSIVE)) {
+        const p = policyFor(sql, m.index);
+        const anyone = /true|1\s*=\s*1/i.test(m.match); // vs "any signed-in user"
+        const readOnly = p.cmd === 'select';
+        const catalog = PUBLIC_CATALOG.test(p.table) || /\bpublic\b/i.test(p.name);
+        const sensitive = SENSITIVE_TABLE.test(p.table);
+        // Public read of a catalog (products, prices, posts…) is the intended design.
+        if (readOnly && catalog) continue;
+
+        let severity: Finding['severity'];
+        let confidence: Finding['confidence'];
+        let title: string;
+        if (!readOnly) {
+          severity = 'critical';
+          confidence = 'high';
+          title = anyone
+            ? `A Row Level Security policy lets anyone change "${p.table || 'a table'}"`
+            : `A Row Level Security policy lets any signed-in user change every row of "${p.table || 'a table'}"`;
+        } else if (sensitive) {
+          severity = anyone ? 'critical' : 'high';
+          confidence = 'high';
+          title = anyone
+            ? `Anyone can read every row of "${p.table}"`
+            : `Any signed-in user can read every row of "${p.table}"`;
+        } else {
+          severity = 'medium';
+          confidence = 'low';
+          title = `"${p.table || 'A table'}" is readable by ${anyone ? 'anyone' : 'any signed-in user'}`;
+        }
         out.push({
           ruleId: 'DATABASE_RLS_PERMISSIVE_POLICY',
           category: 'database',
-          severity: 'critical',
+          severity,
           cwe: 'CWE-639',
           owasp: 'A01:2021',
-          title: 'A Row Level Security policy lets any logged-in user read/write everything',
-          whyItMatters:
-            'A policy like `using (auth.uid() is not null)` checks only that someone is signed in — any signed-up visitor can read every row, not just their own.',
-          evidence: m.match,
+          title,
+          whyItMatters: anyone
+            ? 'A policy of `using (true)` applies to every visitor. On Supabase anyone can call your API with the public key, so every row this policy covers is open to them.'
+            : 'A policy like `using (auth.uid() is not null)` checks only that someone is signed in. On Supabase anyone can sign up, so every user can reach every row, not just their own.',
+          evidence: `${p.cmd.toUpperCase()} on ${p.table || '?'}: ${m.match}`,
           location: { file, line: m.line },
           fix: 'Scope the policy to the owner, e.g. `using (auth.uid() = user_id)`.',
           fixPrompt:
-            'Rewrite this Supabase RLS policy so it only allows a user to access their own rows, e.g. `using (auth.uid() = user_id)` instead of checking only that the user is logged in.',
-          confidence: 'high',
+            'Rewrite this Supabase RLS policy so it only allows a user to access their own rows, e.g. `using (auth.uid() = user_id)` instead of allowing everyone or every signed-in user.',
+          confidence,
+          ...(confidence === 'low' ? { verifyHint: `If "${p.table}" only holds public data (like a catalog), this is fine. If it holds anything private, scope the policy to the owner.` } : {}),
           mode: 'whitebox',
           source: 'native',
         });

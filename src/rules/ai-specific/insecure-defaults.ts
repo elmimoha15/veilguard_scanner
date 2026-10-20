@@ -31,22 +31,29 @@ export const insecureDefaults: Rule = {
       const content = repo.readFile(path);
       if (!content) continue;
       const region = regionAt(isSourceFile(path) ? repo.astFor(path) : null);
+      // A DB driver config (pg, knex, sequelize, prisma…) where managed Postgres
+      // providers document ssl.rejectUnauthorized=false as a workaround.
+      const dbFile = /\b(pg|postgres|Pool|knex|sequelize|typeorm|drizzle|DATABASE_URL|connectionString)\b/.test(content);
       for (const p of PATTERNS) {
         for (const m of safeRegexScan(content, p.re)) {
+          const dbSsl = dbFile && /ssl\s*:\s*\{[^}]*$/.test(content.slice(Math.max(0, m.index - 120), m.index));
           if (region(m.index) !== 'code') continue; // mentioned in a comment/message, not set
           out.push({
             ruleId: 'AI_INSECURE_DEFAULTS',
             category: 'ai_specific',
-            severity: 'high',
+            severity: dbSsl ? 'medium' : 'high',
             cwe: 'CWE-295',
             owasp: 'A05:2021',
-            title: p.title,
-            whyItMatters: p.why,
+            title: dbSsl ? 'Your database connection skips TLS certificate checks' : p.title,
+            whyItMatters: dbSsl
+              ? 'The connection is still encrypted, but the server’s certificate isn’t checked, so a network attacker could impersonate your database. Some managed Postgres providers suggest this as a quick workaround.'
+              : p.why,
             evidence: m.match,
             location: { file: path, line: m.line },
             fix: 'Remove the flag and fix the underlying certificate/trust issue properly.',
             fixPrompt: 'Remove this setting that disables TLS certificate verification and instead configure the correct CA/trust chain so certificates validate normally.',
-            confidence: 'high',
+            confidence: dbSsl ? 'medium' : 'high',
+            ...(dbSsl ? { verifyHint: 'Download your provider’s CA certificate and pass it as ssl.ca with rejectUnauthorized: true. If the database is only reachable on a private network, the risk is lower.' } : {}),
             mode: 'whitebox',
             source: 'native',
           });

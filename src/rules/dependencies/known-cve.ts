@@ -1,5 +1,5 @@
 import type { Rule, Finding, ScanContext } from '../../types.js';
-import { parseVersion, inRange, v, format, type SemVer } from '../../engine/version.js';
+import { parseVersion, inRange, v, format, installedVersion, type SemVer } from '../../engine/version.js';
 
 interface Advisory {
   pkg: string;
@@ -37,14 +37,16 @@ export const knownCve: Rule = {
   category: 'dependencies',
   mode: 'whitebox',
   async run(ctx: ScanContext): Promise<Finding[]> {
-    const manifest = ctx.repo?.packageManifest;
-    if (!manifest) return [];
+    const repo = ctx.repo;
+    const manifest = repo?.packageManifest;
+    if (!repo || !manifest) return [];
     const out: Finding[] = [];
 
     for (const adv of ADVISORIES) {
-      const declared = manifest.allDeps[adv.pkg];
+      const inst = installedVersion(repo, adv.pkg);
+      const declared = inst?.version;
       const parsed = parseVersion(declared);
-      if (!parsed) continue;
+      if (!inst || !parsed) continue;
       if (!adv.ranges.some((r) => inRange(parsed, r.min, r.fixed))) continue;
 
       out.push({
@@ -59,7 +61,8 @@ export const knownCve: Rule = {
         location: { file: manifest.path },
         fix: `Upgrade ${adv.pkg} to a patched release and re-run your tests.`,
         fixPrompt: `Upgrade the ${adv.pkg} dependency to the latest patched version to resolve ${adv.id}, then run the test suite.`,
-        confidence: 'high',
+        confidence: inst.source === 'range' ? 'medium' : 'high',
+        ...(inst.source === 'range' ? { verifyHint: `Check the installed version (npm ls ${adv.pkg}). Your package.json allows a range that may already resolve to a patched release.` } : {}),
         mode: 'whitebox',
         source: 'native',
       });
