@@ -604,5 +604,9 @@
       }
     ],
     "why": "A real secret value behind a public prefix fires even in a demo component."
+  },
+  "safe/supabase-local-demo-key": {
+    "kind": "safe",
+    "why": "Supabase CLI's published local-dev service_role key (iss supabase-demo) is not a real credential."
   }
 }

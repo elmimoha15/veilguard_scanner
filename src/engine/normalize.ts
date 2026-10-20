@@ -179,17 +179,27 @@ export function normalizeOsv(raw: string | null): Finding[] {
       const n = vulns.length;
       const plural = n === 1 ? 'y' : 'ies';
       const critNote = criticalCount > 0 ? ` (${criticalCount} critical)` : '';
+      // Dev-only dependencies (test runners, build tooling) never ship to your
+      // users, so an advisory in one is a developer-machine/CI risk, not a hole in
+      // the live app. Report it, but honestly: low.
+      const groups: string[] = pkg.dependency_groups ?? pkg.package?.dependency_groups ?? [];
+      const devOnly = groups.length > 0 && groups.every((g) => g === 'dev');
       // Deterministic ruleId per package (order-independent), so re-scans overwrite.
       const ruleId = `OSV_${[...ids].sort()[0]!.toUpperCase()}`;
 
       findings.push({
         ruleId,
         category: 'dependencies',
-        severity: worst,
+        severity: devOnly ? 'low' : worst,
+        ...(devOnly && worst !== 'low' ? { potentialSeverity: worst } : {}),
         cwe: 'CWE-1035',
         owasp: 'A06:2021',
-        title: `${name}@${version} has ${n} known vulnerabilit${plural}${critNote}`,
-        whyItMatters: `This version of ${name} has ${n} known published vulnerabilit${plural}${critNote}. Attackers scan for exactly these versions. Advisories: ${ids.join(', ')}.`,
+        title: devOnly
+          ? `Dev-only dependency ${name}@${version} has ${n} known vulnerabilit${plural}${critNote}`
+          : `${name}@${version} has ${n} known vulnerabilit${plural}${critNote}`,
+        whyItMatters: devOnly
+          ? `${name} is only used in development (tests/build), so it doesn't ship to your users. It can still affect developer machines or CI. Advisories: ${ids.join(', ')}.`
+          : `This version of ${name} has ${n} known published vulnerabilit${plural}${critNote}. Attackers scan for exactly these versions. Advisories: ${ids.join(', ')}.`,
         // Keep evidence short (never whole-file content); the ids live in whyItMatters.
         evidence: `${n} advisor${n === 1 ? 'y' : 'ies'}; worst ${worst}`,
         // Package identity is the location so different packages (or the same

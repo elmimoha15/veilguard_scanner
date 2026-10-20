@@ -81,11 +81,18 @@ const SENSITIVE_NAME = /(secret|private|service_?role|password|passwd|token|admi
 
 /** Decode a JWT payload's `role` claim, if this looks like a Supabase JWT. */
 function jwtRole(token: string): string | null {
+  return jwtPayload(token)?.role ?? null;
+}
+
+function jwtPayload(token: string): { role?: string; iss?: string } | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   try {
     const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'));
-    return typeof payload.role === 'string' ? payload.role : null;
+    return {
+      ...(typeof payload.role === 'string' ? { role: payload.role } : {}),
+      ...(typeof payload.iss === 'string' ? { iss: payload.iss } : {}),
+    };
   } catch {
     return null;
   }
@@ -109,6 +116,12 @@ export function classifySecret(value: string, ctx: SecretContext = {}): Classifi
   // 1. Always-dangerous providers.
   for (const d of DANGEROUS) {
     if (d.re.test(v)) return { verdict: 'dangerous', provider: d.provider, reason: d.reason };
+  }
+
+  // 2a. Supabase CLI's published local-dev keys (iss "supabase-demo") only work
+  //     against `supabase start` on a developer machine. Not a credential.
+  if (jwtPayload(v)?.iss === 'supabase-demo') {
+    return { verdict: 'public', provider: 'placeholder', reason: 'Supabase CLI local-dev demo key (only valid against a local stack)' };
   }
 
   // 2. Supabase JWT: role claim decides. service_role is dangerous even though
