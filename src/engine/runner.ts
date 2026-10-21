@@ -69,6 +69,23 @@ export function findingId(f: Finding): string {
   return (h >>> 0).toString(36).padStart(7, '0');
 }
 
+export const DEPS_UNSUPPORTED_NOTE = 'We couldn’t check your dependencies (lockfile format not supported). Results may be incomplete.';
+export const DEPS_MISSING_NOTE = 'We couldn’t check your dependencies (no lockfile found). Results may be incomplete.';
+
+/**
+ * Whether a repo's dependencies can be checked: `checkable` with a lockfile the
+ * advisory scanner reads (npm, pnpm, yarn, text bun.lock); `unsupported` when the
+ * only lockfile is one it can't (Bun's binary bun.lockb); `missing` for a JS
+ * project with no lockfile; `n/a` when there's no package.json (or a URL scan).
+ */
+export function dependencyCoverage(ctx: ScanContext): 'checkable' | 'unsupported' | 'missing' | 'n/a' {
+  const repo = ctx.repo;
+  if (!repo?.packageManifest) return 'n/a';
+  const readable = repo.lockfiles.filter((f) => !f.endsWith('.lockb'));
+  if (readable.length) return 'checkable';
+  return repo.lockfiles.length ? 'unsupported' : 'missing';
+}
+
 export interface ScanProgress {
   done: number;
   total: number;
@@ -235,9 +252,21 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     { category: 'business_logic', title: 'No business-logic issues found', detail: 'We checked for risky patterns like unrestricted uploads and found none.' },
     { category: 'dependencies', title: 'No known-vulnerable dependencies', detail: 'We checked your dependencies against known advisories and none were flagged.' },
   ];
+  // Dependency coverage: a JS project's dependencies can only be checked from a
+  // lockfile the advisory scanner can read. Without one, say so rather than
+  // implying a clean result.
+  const notes: string[] = [];
+  const deps = dependencyCoverage(ctx);
+  if (deps === 'unsupported') notes.push(DEPS_UNSUPPORTED_NOTE);
+  if (deps === 'missing') notes.push(DEPS_MISSING_NOTE);
+  // "No known-vulnerable dependencies" is only earned when the full advisory
+  // database (osv-scanner) actually checked a readable lockfile.
+  const depsChecked = deps === 'checkable' && engines.osvScanner;
+
   const ranCats = new Set(applicable.map((r) => r.category));
   const foundCats = new Set(collected.map((f) => f.category));
   for (const c of COVERAGE) {
+    if (c.category === 'dependencies' && !depsChecked) continue;
     if (ranCats.has(c.category) && !foundCats.has(c.category)) {
       ctx.reportPass?.({
         id: `PASS_CLEAN_${c.category.toUpperCase()}`,
@@ -264,6 +293,7 @@ export async function runScan(ctx: ScanContext, opts: RunOptions = {}): Promise<
     findings: collected.sort((a, b) => severityRank(b.severity) - severityRank(a.severity)),
     passed: passed.sort((a, b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title)),
     engines,
+    ...(notes.length ? { notes } : {}),
   };
 
   // 4. Validate against the schema before returning (fail loudly if we drift).

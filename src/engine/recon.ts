@@ -248,7 +248,7 @@ function buildRepo(root: string): RepoArtifacts {
   }
 
   const lockfiles = files.filter((f) =>
-    ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb'].some((l) => f.endsWith(l)),
+    ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'].some((l) => f.endsWith(l)),
   );
 
   return { root, files, readFile, sqlFiles, envFiles, packageManifest, lockfiles, astFor };

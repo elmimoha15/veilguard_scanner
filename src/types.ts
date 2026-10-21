@@ -122,6 +122,8 @@ export const ScanReportSchema = z.object({
   findings: z.array(FindingSchema),
   /** Security checks the app passed (positive results). Never affects the grade. */
   passed: z.array(PassedCheckSchema),
+  /** Plain-English notes about how the scan ran (e.g. coverage gaps). Never affect the grade. */
+  notes: z.array(z.string()).optional(),
   engines: z.object({
     semgrep: z.boolean(),
     gitleaks: z.boolean(),
